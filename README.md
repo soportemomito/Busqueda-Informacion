@@ -1,6 +1,6 @@
 # SoyMomo ST System
 
-Herramienta de búsqueda 360° para el equipo de soporte de SoyMomo. Consolida en una sola consulta información de Chatwoot, Shopify, Bsale y Google Drive.
+Herramienta de búsqueda para el equipo de soporte de SoyMomo. Consolida en una sola consulta información de Chatwoot, Shopify, Bsale y Google Drive.
 
 ## Qué hace
 
