@@ -9,7 +9,7 @@ import { setupRouter } from './routes/setup.js';
 import { chatwootActionsRouter } from './routes/chatwootActions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = join(__dirname, '../public');
+const PUBLIC_DIR = join(__dirname, '../../client/dist');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
