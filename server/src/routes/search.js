@@ -13,6 +13,37 @@ export const searchRouter = Router();
 
 const ST_MS = 90 * 24 * 60 * 60 * 1000;
 
+// ─── contact-preview: solo Chatwoot, sin Bsale/Shopify ───────────────────────
+searchRouter.get('/contact-preview', async (req, res) => {
+  const convId = Number(req.query.convId);
+  if (!convId || !Number.isFinite(convId) || convId <= 0) {
+    return res.json({ name: null, email: null, phone: null });
+  }
+  let creds;
+  try {
+    creds = await resolveCredentials(getSupabase());
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+  try {
+    const plan = buildSearchPlan(String(convId));
+    const result = await searchChatwoot(plan, creds);
+    const contact = result.contacts?.[0] || {};
+    const INTERNAL = new Set(['soymomo.com', 'soymomo.io', 'helpdesk.soymomo.io']);
+    const email =
+      (result.emailsFromContacts || [])[0] ||
+      (result.emailsFromMessages || []).find((e) => !INTERNAL.has((e.split('@')[1] || '').toLowerCase())) ||
+      null;
+    return res.json({
+      name: contact.name || null,
+      email: email || null,
+      phone: contact.phone_number || contact.phone || null,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 function wrapOk(data) {
   return { status: 'ok', data };
 }

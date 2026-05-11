@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSearch, resolveChatwootConversation } from '../api/client.js';
+import { fetchSearch, resolveChatwootConversation, fetchContactPreview } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
 import { useChatwootDashboardContext, isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
@@ -613,6 +613,23 @@ export default function SearchPage() {
   const embed = isDashboardEmbed();
   const chatwootCtx = useChatwootDashboardContext();
   const [input, setInput] = useState('');
+
+  // Cuando Chatwoot nos da el conversationId, cargamos el contacto en background
+  const ctxConvId = chatwootCtx?.conversationId ?? null;
+  const { data: contactPreview } = useQuery({
+    queryKey: ['contact-preview', ctxConvId],
+    queryFn: () => fetchContactPreview(ctxConvId),
+    enabled: !!ctxConvId,
+    staleTime: 3 * 60 * 1000,
+    retry: false,
+  });
+
+  // Fusionar datos del appContext (si Chatwoot los manda) con los del backend
+  const ctxContact = {
+    name: chatwootCtx?.contact?.name || contactPreview?.name || null,
+    email: chatwootCtx?.contact?.email || contactPreview?.email || null,
+    phone: chatwootCtx?.contact?.phone || contactPreview?.phone || null,
+  };
   const debounced = useDebouncedValue(input.trim(), 400);
   const canSearch = debounced.length >= 2;
 
@@ -668,10 +685,10 @@ export default function SearchPage() {
       {/* empty state */}
       {!canSearch && !isFetching && (() => {
         const ctxButtons = [];
-        if (chatwootCtx?.conversationId) ctxButtons.push({ label: 'ID ticket', value: `cw ${chatwootCtx.conversationId}`, sub: `#${chatwootCtx.conversationId}` });
-        if (chatwootCtx?.contact?.name) ctxButtons.push({ label: 'Nombre', value: chatwootCtx.contact.name, sub: chatwootCtx.contact.name });
-        if (chatwootCtx?.contact?.email) ctxButtons.push({ label: 'Correo', value: chatwootCtx.contact.email, sub: chatwootCtx.contact.email });
-        if (chatwootCtx?.contact?.phone) ctxButtons.push({ label: 'Teléfono', value: chatwootCtx.contact.phone, sub: chatwootCtx.contact.phone });
+        if (ctxConvId) ctxButtons.push({ label: 'ID ticket', value: `cw ${ctxConvId}`, sub: `#${ctxConvId}` });
+        if (ctxContact.name) ctxButtons.push({ label: 'Nombre', value: ctxContact.name, sub: ctxContact.name });
+        if (ctxContact.email) ctxButtons.push({ label: 'Correo', value: ctxContact.email, sub: ctxContact.email });
+        if (ctxContact.phone) ctxButtons.push({ label: 'Teléfono', value: ctxContact.phone, sub: ctxContact.phone });
         const exampleButtons = [
           ['ID conversación', '1234'],
           ['IMEI', '358123456789012'],

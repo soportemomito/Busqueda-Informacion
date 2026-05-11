@@ -32,6 +32,12 @@ export async function saveConfig(body) {
   return data;
 }
 
+export async function fetchContactPreview(convId) {
+  const res = await fetch(`/api/search/contact-preview?convId=${convId}`);
+  if (!res.ok) return { name: null, email: null, phone: null };
+  return res.json();
+}
+
 export async function resolveChatwootConversation(conversationId) {
   const res = await fetch('/api/chatwoot/conversations/resolve', {
     method: 'POST',
