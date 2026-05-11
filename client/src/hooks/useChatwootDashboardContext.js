@@ -40,7 +40,9 @@ function pickContextFromPayload(p) {
 function pingParent() {
   try {
     if (typeof window !== 'undefined' && window.self !== window.top) {
+      // Probar múltiples formatos — distintas versiones de Chatwoot usan distintas keys
       window.parent.postMessage({ event: 'loaded' }, '*');
+      window.parent.postMessage({ type: 'loaded' }, '*');
     }
   } catch { /* cross-origin */ }
 }
@@ -85,10 +87,12 @@ export function useChatwootDashboardContext() {
         const isAppCtx = isObj && (d.event === 'appContext' || d.type === 'appContext');
         logEvent('chatwoot', isAppCtx, null, detail);
 
-        if (isAppCtx) {
+        if (isObj) {
+          // Intentar extraer contexto de CUALQUIER mensaje del padre,
+          // no solo de 'appContext' — Chatwoot usa distintos event names según versión
           const payload = d.payload ?? d.data ?? d;
           const ctxData = pickContextFromPayload(payload);
-          if (ctxData) applyCtx(ctxData, 'appContext');
+          if (ctxData) applyCtx(ctxData, isAppCtx ? 'appContext' : 'parent-any');
         }
         return;
       }
