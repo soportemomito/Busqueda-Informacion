@@ -371,7 +371,10 @@ searchRouter.get('/', async (req, res) => {
         if (shEmpty) tasks.push({ key: 'shopify', p: searchShopify(ep, creds) });
         if (cwEmpty) tasks.push({ key: 'chatwoot', p: searchChatwoot(ep, creds) });
       }
-      // Bsale solo se enriquece por email — teléfono y RUT traen demasiados falsos positivos
+      // Enriquecer Bsale con RUT si sigue vacío (confiable; se descarta teléfono)
+      if (pivot.rut && bsEmpty && !tasks.find((t) => t.key === 'bsale')) {
+        tasks.push({ key: 'bsale', p: searchBsale(buildSearchPlan(pivot.rut), creds) });
+      }
       // Si no hay email pero hay número de pedido Shopify, intentar Shopify por ese pedido
       if (pivot.orderNumber && shEmpty && !tasks.find((t) => t.key === 'shopify')) {
         tasks.push({ key: 'shopify', p: searchShopify(buildSearchPlan(pivot.orderNumber), creds) });
