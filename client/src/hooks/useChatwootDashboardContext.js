@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 export const _debugEvents = [];
 function logEvent(source, matched, query, detail) {
   _debugEvents.push({ ts: Date.now(), source, matched, query: query || null, detail: String(detail || '').slice(0, 300) });
-  if (_debugEvents.length > 40) _debugEvents.shift();
+  if (_debugEvents.length > 60) _debugEvents.shift();
 }
 
 function extractConvId(s) {
@@ -13,7 +13,7 @@ function extractConvId(s) {
   if (m) return Number(m[1]);
   try {
     const url = new URL(str, 'https://x');
-    for (const key of ['conversation_id', 'conv_id', 'conversation', 'cw', 'id']) {
+    for (const key of ['conversation_id', 'conv_id', 'conversation', 'cw', 'cid', 'id']) {
       const v = url.searchParams.get(key);
       if (v && /^\d+$/.test(v)) return Number(v);
     }
@@ -28,7 +28,6 @@ function pickConvIdFromPayload(p) {
   return id != null ? Number(id) : null;
 }
 
-// Enviar 'loaded' al padre — Chatwoot responde con appContext (incluyendo el ID de conversación actual)
 function pingParent() {
   try {
     if (typeof window !== 'undefined' && window.self !== window.top) {
@@ -37,7 +36,6 @@ function pingParent() {
   } catch { /* cross-origin */ }
 }
 
-// Primer ping antes de que React monte
 pingParent();
 
 export function useChatwootDashboardContext() {
@@ -53,33 +51,54 @@ export function useChatwootDashboardContext() {
   }
 
   useEffect(() => {
-    // Leer ID desde URL propia (si Chatwoot lo pasa como param)
+    // Leer ID desde params de la URL propia (cid={{conversation.id}} si Chatwoot lo soporta)
     const ownId = extractConvId(window.location.href);
     if (ownId) applyId(ownId, 'url-param');
 
-    // Escuchar appContext de Chatwoot
+    // Escuchar TODOS los mensajes — logear todo lo que venga del frame padre
     function onMessage(event) {
       const d = event?.data;
-      if (!d || typeof d !== 'object') return;
-      if (d.event !== 'appContext' && d.type !== 'appContext') {
-        if (d.event || d.type) logEvent('postMessage', false, null, JSON.stringify(d).slice(0, 200));
+
+      // Detectar si el mensaje viene del padre (funciona cross-origin)
+      let fromParent = false;
+      try { fromParent = event.source === window.parent; } catch {}
+
+      if (fromParent) {
+        // Logear todo lo que Chatwoot envíe, sea el formato que sea
+        const detail = d == null
+          ? '(null)'
+          : typeof d === 'string'
+            ? d.slice(0, 300)
+            : JSON.stringify(d).slice(0, 300);
+
+        const isObj = d && typeof d === 'object';
+        const isAppCtx = isObj && (d.event === 'appContext' || d.type === 'appContext');
+        logEvent('chatwoot', isAppCtx, null, detail);
+
+        if (isAppCtx) {
+          const payload = d.payload ?? d.data ?? d;
+          const convId = pickConvIdFromPayload(payload);
+          if (convId) applyId(convId, 'appContext');
+        }
         return;
       }
+
+      // Mensajes de otras fuentes — solo procesar appContext
+      if (!d || typeof d !== 'object') return;
+      if (d.event !== 'appContext' && d.type !== 'appContext') return;
       const payload = d.payload ?? d.data ?? d;
-      logEvent('postMessage', true, null, JSON.stringify(d).slice(0, 200));
       const convId = pickConvIdFromPayload(payload);
-      if (convId) applyId(convId, 'postMessage');
+      if (convId) applyId(convId, 'appContext-other');
     }
     window.addEventListener('message', onMessage);
 
-    // Ping periódico: cada 2s enviamos 'loaded' y Chatwoot responde con el contexto actual.
-    // Así detectamos cambios de conversación aunque el watcher interno de Chatwoot no dispare.
+    // Ping periódico: Chatwoot responde con appContext cuando recibe 'loaded'
     pingParent();
     const t1 = setTimeout(pingParent, 400);
     const t2 = setTimeout(pingParent, 1000);
     const interval = setInterval(pingParent, 2000);
 
-    // Fallback same-domain: polling de parent URL (falla silenciosamente si cross-origin)
+    // Fallback same-domain
     let pollStopped = false;
     function pollParent() {
       if (pollStopped) return;
