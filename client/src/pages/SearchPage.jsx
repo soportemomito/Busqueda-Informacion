@@ -296,10 +296,16 @@ function SectionBsale({ block, shopifyBlock }) {
     !shopifyBlock?.data?.skipped &&
     (shopifyBlock?.data?.orders?.length ?? 0) > 0;
 
+  const nameNote = block.data?.nameWithoutEmailNote;
   const subtitle = hasShopifyOrders ? 'También hay pedido en Shopify' : undefined;
 
   return (
     <CollapsibleResultSection title="Boletas" badge={items.length} subtitle={subtitle} defaultOpen>
+      {nameNote && (
+        <div className="mx-4 mt-3 mb-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          {nameNote}
+        </div>
+      )}
       {[...grouped.entries()].map(([clientKey, docs]) => {
         const client = clientMap[clientKey];
         const clientName = client?.name || null;

@@ -349,12 +349,19 @@ export async function searchBsale(plan, creds) {
 
   const clients = [...clientIds].map((id) => clientSummary(clientRecords.get(id) || { id })).filter((c) => c.id != null);
 
+  // Búsqueda por nombre sin correo: avisar que pueden aparecer varios clientes homónimos
+  const nameWithoutEmailNote =
+    plan.type === 'name' && clients.length > 0
+      ? 'Búsqueda por nombre — sin correo para validar, pueden aparecer clientes con el mismo nombre. Si tienes el correo, úsalo para afinar.'
+      : null;
+
   return {
     items: documents,
     clientIds: [...clientIds],
     clients,
     note,
     strictNameNote: strictNameNote || null,
+    nameWithoutEmailNote,
   };
 }
 
