@@ -191,6 +191,13 @@ export async function searchBsale(plan, creds) {
 
   if (plan.type === 'empty') return { items: [], clientIds: [], clients: [], note: null };
 
+  // Solo buscar si tenemos email o nombre completo (nombre + apellido)
+  if (plan.type === 'phone') return { items: [], clientIds: [], clients: [], note: null };
+  if (plan.type === 'name') {
+    const parts = String(plan.name || plan.bsaleHints?.name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 2) return { items: [], clientIds: [], clients: [], note: null };
+  }
+
   const hints = plan.bsaleHints || {};
   let q = '';
   let qEmailNorm = '';
