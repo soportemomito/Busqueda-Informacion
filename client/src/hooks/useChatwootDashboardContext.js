@@ -1,44 +1,26 @@
 import { useEffect, useState } from 'react';
 
-// Module-level: capture events before React mounts, and keep a debug log
-let _earlyPayload = null;
-let _earlyReceivedAt = null;
-export const _debugEvents = []; // exported for debug panel
+// ── debug log (exported for the debug panel) ──────────────────────────────────
+export const _debugEvents = [];
 
-function logDebug(raw, matched, query) {
-  _debugEvents.push({ ts: Date.now(), matched, query: query || null, keys: Object.keys(raw || {}) });
-  if (_debugEvents.length > 30) _debugEvents.shift();
+function logEvent(raw, matched, query) {
+  _debugEvents.push({
+    ts: Date.now(),
+    matched,
+    query: query || null,
+    eventName: raw?.event || raw?.type || '(sin nombre)',
+    keys: raw && typeof raw === 'object' ? Object.keys(raw) : [],
+    preview: JSON.stringify(raw || {}).slice(0, 200),
+  });
+  if (_debugEvents.length > 40) _debugEvents.shift();
 }
 
-function onRawMessage(event) {
-  const d = event?.data;
-  if (!d || typeof d !== 'object') return;
-  const matched = d.event === 'appContext' || d.type === 'appContext';
-  if (!matched) {
-    // Log non-matching events too (helps debug wrong event names)
-    if (d.event || d.type) logDebug(d, false, null);
-    return;
-  }
-  const payload = d.payload ?? d.data ?? d;
-  const query = pickQueryFromPayload(payload);
-  logDebug(d, true, query);
-  if (!payload || typeof payload !== 'object') return;
-  _earlyPayload = payload;
-  _earlyReceivedAt = Date.now();
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('message', onRawMessage);
-}
+// ── payload parsing ───────────────────────────────────────────────────────────
 
 function pickQueryFromPayload(p) {
   if (!p || typeof p !== 'object') return '';
-  // Chatwoot v3 uses "currentConversation"; older builds use "conversation"
   const conv =
-    p.currentConversation ??
-    p.current_conversation ??
-    p.conversation ??
-    null;
+    p.currentConversation ?? p.current_conversation ?? p.conversation ?? null;
   const convId = conv?.id ?? p.conversationId ?? p.conversation_id ?? null;
   if (convId != null) return `cw ${convId}`;
 
@@ -64,6 +46,49 @@ export function pickContactFromPayload(p) {
   return { name: name || null, email: email || null, phone: phone || null };
 }
 
+// ── module-level: capture events before React mounts ─────────────────────────
+let _earlyPayload = null;
+let _earlyReceivedAt = null;
+
+function isAppContext(d) {
+  if (!d || typeof d !== 'object') return false;
+  return d.event === 'appContext' || d.type === 'appContext';
+}
+
+function onRawMessage(event) {
+  const d = event?.data;
+  // Log ALL events so the debug panel shows everything
+  if (d !== null && d !== undefined) {
+    const matched = isAppContext(d);
+    const payload = matched ? (d.payload ?? d.data ?? d) : null;
+    const query = payload ? pickQueryFromPayload(payload) : null;
+    logEvent(d, matched, query);
+
+    if (matched && payload && typeof payload === 'object') {
+      _earlyPayload = payload;
+      _earlyReceivedAt = Date.now();
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  // Register before anything else so we never miss an early event
+  window.addEventListener('message', onRawMessage);
+
+  // Signal Chatwoot that the Dashboard App is ready.
+  // Chatwoot listens for { event: 'loaded' } from the iframe and
+  // responds with { event: 'appContext', data: { contact, currentConversation } }.
+  // We send multiple variants because different Chatwoot versions use different names.
+  try {
+    if (window.self !== window.top) {
+      window.parent.postMessage({ event: 'loaded' }, '*');
+      window.parent.postMessage({ event: 'ready' }, '*');
+    }
+  } catch { /* cross-origin, ignore */ }
+}
+
+// ── hook ──────────────────────────────────────────────────────────────────────
+
 export function useChatwootDashboardContext() {
   const [ctx, setCtx] = useState(() => {
     if (_earlyPayload) {
@@ -74,16 +99,17 @@ export function useChatwootDashboardContext() {
   });
 
   useEffect(() => {
-    // Apply early payload if it was missed in the initializer
+    // Apply payload captured before React mounted
     if (_earlyPayload && !ctx) {
       const query = pickQueryFromPayload(_earlyPayload);
       if (query) setCtx({ query, raw: _earlyPayload, contact: pickContactFromPayload(_earlyPayload), receivedAt: _earlyReceivedAt ?? Date.now() });
     }
 
-    // Proactively ask the parent frame to re-send the context.
-    // Some Chatwoot builds respond to this; others ignore it (harmless).
+    // Re-send ready signals now that React is mounted (covers slow networks)
     try {
       if (window.self !== window.top) {
+        window.parent.postMessage({ event: 'loaded' }, '*');
+        window.parent.postMessage({ event: 'ready' }, '*');
         window.parent.postMessage({ event: 'request-context' }, '*');
       }
     } catch { /* cross-origin, ignore */ }
@@ -91,7 +117,7 @@ export function useChatwootDashboardContext() {
     function handler(event) {
       const d = event?.data;
       if (!d || typeof d !== 'object') return;
-      if (d.event !== 'appContext' && d.type !== 'appContext') return;
+      if (!isAppContext(d)) return;
       const payload = d.payload ?? d.data ?? d;
       if (!payload || typeof payload !== 'object') return;
       const query = pickQueryFromPayload(payload);

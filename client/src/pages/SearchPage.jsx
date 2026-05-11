@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSearch, fetchSetup, resolveChatwootConversation } from '../api/client.js';
+import { fetchSearch, resolveChatwootConversation } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
 import { useChatwootDashboardContext, isDashboardEmbed, _debugEvents } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
@@ -121,47 +121,72 @@ function SourceStatusBar({ data, meta }) {
 function DebugPanel({ input, onManualQuery }) {
   const [show, setShow] = useState(false);
   const [manualId, setManualId] = useState('');
+  const [tick, setTick] = useState(0);
+
+  // refresh every second while open so the log updates live
+  useEffect(() => {
+    if (!show) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [show]);
 
   return (
     <div className="mb-3">
       <button
         type="button"
         onClick={() => setShow((v) => !v)}
-        className="text-[10px] text-momo-400 hover:text-momo-700 underline"
+        className="text-[10px] text-slate-400 hover:text-momo-600 underline"
       >
-        {show ? 'Ocultar debug auto-búsqueda' : 'Debug auto-búsqueda'}
+        {show ? 'Ocultar diagnóstico' : 'Diagnóstico auto-búsqueda'}
       </button>
       {show && (
-        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-2">
-          <p className="font-semibold text-slate-700">Eventos postMessage recibidos: {_debugEvents.length}</p>
+        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-2">
+          <p className="font-bold text-slate-700">
+            Mensajes recibidos de Chatwoot: {_debugEvents.length}
+            <span className="ml-2 font-normal text-slate-400">(se actualiza en vivo)</span>
+          </p>
+
           {_debugEvents.length === 0 && (
-            <p className="text-amber-700">No se ha recibido ningún evento. Chatwoot puede no estar enviando appContext o el evento llega con un nombre distinto.</p>
-          )}
-          {_debugEvents.slice(-5).reverse().map((e, i) => (
-            <div key={i} className={`rounded px-2 py-1 ${e.matched ? 'bg-emerald-50 border border-emerald-200' : 'bg-white border border-slate-200'}`}>
-              <span className={`font-semibold ${e.matched ? 'text-emerald-700' : 'text-slate-500'}`}>
-                {e.matched ? 'appContext' : 'otro'}{' '}
-              </span>
-              <span className="text-slate-600">keys: [{e.keys.join(', ')}]</span>
-              {e.query && <span className="ml-2 text-momo-700 font-semibold">→ "{e.query}"</span>}
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800">
+              <p className="font-semibold">Sin mensajes todavía</p>
+              <p className="mt-0.5">Chatwoot aún no envió el contexto. El hook ya mandó la señal "loaded" — espera unos segundos o cambia de conversación.</p>
             </div>
-          ))}
-          <div className="flex gap-2 pt-1 border-t border-slate-200">
-            <input
-              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-              placeholder="ID conversación (ej: 1234)"
-              value={manualId}
-              onChange={(e) => setManualId(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => { if (manualId.trim()) onManualQuery(`cw ${manualId.trim()}`); }}
-              className="rounded bg-momo-600 text-white px-3 py-1 text-xs font-medium"
-            >
-              Forzar
-            </button>
+          )}
+
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {[..._debugEvents].reverse().map((e, i) => (
+              <div key={i} className={`rounded-lg px-2 py-1.5 border text-[10px] ${e.matched ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`font-bold ${e.matched ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    {e.matched ? '✓ appContext' : e.eventName}
+                  </span>
+                  {e.query && <span className="text-momo-700 font-semibold">→ buscar "{e.query}"</span>}
+                </div>
+                <p className="text-slate-400 truncate mt-0.5">{e.preview}</p>
+              </div>
+            ))}
           </div>
-          <p className="text-slate-400">Query actual en buscador: "{input}"</p>
+
+          <div className="pt-2 border-t border-slate-200 space-y-2">
+            <p className="text-slate-500 font-semibold">Búsqueda manual por ID de conversación:</p>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-momo-400"
+                placeholder="ID de conversación (ej: 1234)"
+                value={manualId}
+                onChange={(e) => setManualId(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && manualId.trim()) onManualQuery(`cw ${manualId.trim()}`); }}
+              />
+              <button
+                type="button"
+                onClick={() => { if (manualId.trim()) onManualQuery(`cw ${manualId.trim()}`); }}
+                className="rounded-lg bg-momo-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-momo-700"
+              >
+                Buscar
+              </button>
+            </div>
+          </div>
+          <p className="text-slate-400">Buscador actual: <span className="font-mono text-slate-600">"{input}"</span></p>
         </div>
       )}
     </div>
@@ -620,8 +645,6 @@ export default function SearchPage() {
     if (dashCtx?.query) setInput(dashCtx.query);
   }, [dashCtx?.query, dashCtx?.receivedAt]);
 
-  const { data: setup } = useQuery({ queryKey: ['setup'], queryFn: fetchSetup, staleTime: 60_000 });
-
   const { data, isFetching, isError, error } = useQuery({
     queryKey: ['search', debounced],
     queryFn: () => fetchSearch(debounced),
@@ -637,16 +660,6 @@ export default function SearchPage() {
   return (
     <div className={embed ? 'px-3 py-4' : 'max-w-2xl mx-auto px-4 py-8'}>
 
-      {/* setup warning */}
-      {setup && (!setup.chatwoot?.ready || !setup.bsale?.ready) && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-bold">Faltan credenciales</p>
-          <ul className="mt-1 space-y-0.5 text-xs list-disc list-inside">
-            {!setup.chatwoot?.ready && <li>Chatwoot: {setup.chatwoot?.hint}</li>}
-            {!setup.bsale?.ready && <li>Bsale: {setup.bsale?.hint}</li>}
-          </ul>
-        </div>
-      )}
 
       {/* search bar */}
       <div className="mb-5">
