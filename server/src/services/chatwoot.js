@@ -51,6 +51,8 @@ function extractGeminiSummary(customAttributes) {
 const ST_CONTEXT_RE = /ST|servicio\s*t[eé]cnico/i;
 const ORDER_TOKEN_RE = /[PES]-?\d+/gi;
 const EMAIL_IN_MSG_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
+// Captura emails con espacios alrededor del @ (ej: "usuario @ gmail.com")
+const EMAIL_SPACED_RE = /[A-Za-z0-9._%+\-]+\s+@\s+[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
 const SHOPIFY_ORDER_IN_MSG_RE = /\b[A-Za-z]{1,4}#\d{3,8}\b/g;
 
 function extractStOrdersFromText(text) {
@@ -60,14 +62,27 @@ function extractStOrdersFromText(text) {
   return [...new Set(raw.map((x) => x.toUpperCase().replace(/\s/g, '')))];
 }
 
+function stripHtml(text) {
+  return String(text || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+}
+
 function messagePlainText(m) {
   if (!m) return '';
-  if (typeof m.content === 'string' && m.content.trim()) return m.content;
-  if (typeof m.processed_message_content === 'string') return m.processed_message_content;
-  if (Array.isArray(m.content_attributes?.items)) {
-    return m.content_attributes.items.map((i) => i.title || i.description || '').join(' ');
+  const parts = [];
+  if (typeof m.content === 'string' && m.content.trim()) parts.push(stripHtml(m.content));
+  if (typeof m.processed_message_content === 'string' && m.processed_message_content.trim()) {
+    parts.push(stripHtml(m.processed_message_content));
   }
-  return '';
+  if (Array.isArray(m.content_attributes?.items)) {
+    parts.push(m.content_attributes.items.map((i) => i.title || i.description || i.value || '').join(' '));
+  }
+  // Canal email: puede tener asunto con info útil
+  const emailMeta = m.content_attributes?.email;
+  if (typeof emailMeta?.subject === 'string') parts.push(emailMeta.subject);
+  return parts.filter(Boolean).join(' ');
 }
 
 function dedupeFactRows(rows) {
@@ -235,6 +250,7 @@ export async function searchChatwoot(plan, creds) {
       const chunk = msgs.map(messagePlainText).join('\n');
       for (const ord of extractStOrdersFromText(chunk)) stOrdersFromMessages.add(ord);
       for (const em of (chunk.match(EMAIL_IN_MSG_RE) || [])) emailsFromMessages.add(em.toLowerCase());
+      for (const em of (chunk.match(EMAIL_SPACED_RE) || [])) emailsFromMessages.add(em.replace(/\s/g, '').toLowerCase());
       for (const ord of (chunk.match(SHOPIFY_ORDER_IN_MSG_RE) || [])) shopifyOrdersFromMessages.add(ord.toUpperCase());
       const facts = extractDeviceFactsFromText(chunk);
       if (facts.length) convDeviceFacts.set(conv.id, dedupeFactRows(facts));

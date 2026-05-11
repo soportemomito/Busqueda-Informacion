@@ -55,6 +55,12 @@ function normalizeEmail(s) {
   return String(s || '').trim().toLowerCase();
 }
 
+const INTERNAL_EMAIL_DOMAINS = new Set(['soymomo.com', 'soymomo.io', 'helpdesk.soymomo.io']);
+function isInternalEmail(email) {
+  const domain = String(email || '').split('@')[1] || '';
+  return INTERNAL_EMAIL_DOMAINS.has(domain.toLowerCase());
+}
+
 function collectEquipmentFactsFromCwData(cwData) {
   if (!cwData) return [];
   const m = new Map();
@@ -77,7 +83,8 @@ function buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock) {
 
   if (chatwootBlock.status === 'ok' && chatwootBlock.data) {
     emails.push(...(chatwootBlock.data.emailsFromContacts || []));
-    emails.push(...(chatwootBlock.data.emailsFromMessages || []));
+    // Filtrar emails internos (soymomo) para no contaminar la búsqueda
+    emails.push(...(chatwootBlock.data.emailsFromMessages || []).filter((e) => !isInternalEmail(e)));
     orderNumbers.push(...(chatwootBlock.data.shopifyOrdersFromMessages || []));
     phones.push(...(chatwootBlock.data.phonesFromContacts || []));
     ruts.push(...(chatwootBlock.data.rutsFromMessages || []));
@@ -514,7 +521,11 @@ searchRouter.get('/', async (req, res) => {
     similarTickets,
     contactSummary: {
       name: cwData?.contacts?.[0]?.name || null,
-      email: (cwData?.emailsFromContacts || [])[0] || null,
+      // Email: primero del perfil de contacto, si no el primero de mensajes (filtrando internos)
+      email:
+        (cwData?.emailsFromContacts || [])[0] ||
+        ((cwData?.emailsFromMessages || []).find((e) => !isInternalEmail(e))) ||
+        null,
       phone: (cwData?.phonesFromContacts || [])[0] || null,
       ruts: cwData?.rutsFromMessages || [],
       smOrders: cwData?.shopifyOrdersFromMessages || [],
