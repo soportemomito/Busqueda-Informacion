@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSearch, resolveChatwootConversation } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
-import { isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
+import { useChatwootDashboardContext, isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -611,6 +611,7 @@ function StBanner({ meta }) {
 export default function SearchPage() {
   const qc = useQueryClient();
   const embed = isDashboardEmbed();
+  const chatwootCtx = useChatwootDashboardContext();
   const [input, setInput] = useState('');
   const debounced = useDebouncedValue(input.trim(), 400);
   const canSearch = debounced.length >= 2;
@@ -664,34 +665,52 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* debug (embed only) */}
       {/* empty state */}
-      {!canSearch && !isFetching && (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 py-10 text-center px-4">
-          <p className="text-2xl mb-2">🔎</p>
-          <p className="text-sm font-medium text-slate-600 mb-3">¿Qué puedes buscar?</p>
-          <div className="flex flex-wrap justify-center gap-2 text-xs">
-            {[
-              ['ID conversación', '1234'],
-              ['IMEI', '358123456789012'],
-              ['RUT', '12.345.678-9'],
-              ['Correo', 'cliente@mail.com'],
-              ['Nombre completo', 'Ana García'],
-              ['N° pedido', '#SM38293'],
-            ].map(([label, ex]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setInput(ex)}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:border-momo-300 hover:text-momo-700 hover:bg-momo-50 transition-colors"
-              >
-                <span className="font-medium">{label}</span>
-                <span className="text-slate-400 ml-1">· {ex}</span>
-              </button>
-            ))}
+      {!canSearch && !isFetching && (() => {
+        const ctxButtons = [];
+        if (chatwootCtx?.conversationId) ctxButtons.push({ label: 'ID ticket', value: `cw ${chatwootCtx.conversationId}`, sub: `#${chatwootCtx.conversationId}` });
+        if (chatwootCtx?.contact?.name) ctxButtons.push({ label: 'Nombre', value: chatwootCtx.contact.name, sub: chatwootCtx.contact.name });
+        if (chatwootCtx?.contact?.email) ctxButtons.push({ label: 'Correo', value: chatwootCtx.contact.email, sub: chatwootCtx.contact.email });
+        if (chatwootCtx?.contact?.phone) ctxButtons.push({ label: 'Teléfono', value: chatwootCtx.contact.phone, sub: chatwootCtx.contact.phone });
+        const exampleButtons = [
+          ['ID conversación', '1234'],
+          ['IMEI', '358123456789012'],
+          ['RUT', '12.345.678-9'],
+          ['Correo', 'cliente@mail.com'],
+          ['Nombre completo', 'Ana García'],
+          ['N° pedido', '#SM38293'],
+        ];
+        return (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 py-10 text-center px-4">
+            <p className="text-2xl mb-2">🔎</p>
+            <p className="text-sm font-medium text-slate-600 mb-3">¿Qué puedes buscar?</p>
+            {ctxButtons.length > 0 && (
+              <>
+                <p className="text-[11px] text-slate-400 mb-2 font-medium uppercase tracking-wide">Chat actual</p>
+                <div className="flex flex-wrap justify-center gap-2 text-xs mb-4">
+                  {ctxButtons.map(({ label, value, sub }) => (
+                    <button key={label} type="button" onClick={() => setInput(value)}
+                      className="rounded-full border border-momo-300 bg-momo-50 px-3 py-1.5 text-momo-700 hover:border-momo-500 hover:bg-momo-100 transition-colors">
+                      <span className="font-semibold">{label}</span>
+                      <span className="text-momo-500 ml-1 font-normal">· {sub}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-300 mb-2 font-medium uppercase tracking-wide">o busca por</p>
+              </>
+            )}
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              {exampleButtons.map(([label, ex]) => (
+                <button key={label} type="button" onClick={() => setInput(ex)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:border-momo-300 hover:text-momo-700 hover:bg-momo-50 transition-colors">
+                  <span className="font-medium">{label}</span>
+                  <span className="text-slate-400 ml-1">· {ex}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* loading */}
       {canSearch && isFetching && (

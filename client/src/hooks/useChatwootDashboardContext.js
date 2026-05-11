@@ -21,11 +21,20 @@ function extractConvId(s) {
   return null;
 }
 
-function pickConvIdFromPayload(p) {
+function pickContextFromPayload(p) {
   if (!p || typeof p !== 'object') return null;
   const conv = p.currentConversation ?? p.current_conversation ?? p.conversation ?? null;
   const id = conv?.id ?? p.conversationId ?? p.conversation_id ?? null;
-  return id != null ? Number(id) : null;
+  if (id == null || !Number.isFinite(Number(id)) || Number(id) <= 0) return null;
+  const contact = p.contact ?? conv?.meta?.sender ?? null;
+  return {
+    conversationId: Number(id),
+    contact: {
+      name: contact?.name ?? contact?.display_name ?? null,
+      email: contact?.email ?? contact?.additional_attributes?.email ?? null,
+      phone: contact?.phone_number ?? contact?.phone ?? null,
+    },
+  };
 }
 
 function pingParent() {
@@ -42,18 +51,19 @@ export function useChatwootDashboardContext() {
   const [ctx, setCtx] = useState(null);
   const lastIdRef = useRef(null);
 
-  function applyId(id, source) {
+  function applyCtx(ctxData, source) {
+    const { conversationId: id, contact } = ctxData;
     if (!id || id === lastIdRef.current) return;
     lastIdRef.current = id;
     const query = `cw ${id}`;
     logEvent(source, true, query, `conv id = ${id}`);
-    setCtx({ query, receivedAt: Date.now() });
+    setCtx({ query, conversationId: id, contact: contact || null, receivedAt: Date.now() });
   }
 
   useEffect(() => {
     // Leer ID desde params de la URL propia (cid={{conversation.id}} si Chatwoot lo soporta)
     const ownId = extractConvId(window.location.href);
-    if (ownId) applyId(ownId, 'url-param');
+    if (ownId) applyCtx({ conversationId: ownId, contact: null }, 'url-param');
 
     // Escuchar TODOS los mensajes — logear todo lo que venga del frame padre
     function onMessage(event) {
@@ -77,8 +87,8 @@ export function useChatwootDashboardContext() {
 
         if (isAppCtx) {
           const payload = d.payload ?? d.data ?? d;
-          const convId = pickConvIdFromPayload(payload);
-          if (convId) applyId(convId, 'appContext');
+          const ctxData = pickContextFromPayload(payload);
+          if (ctxData) applyCtx(ctxData, 'appContext');
         }
         return;
       }
@@ -87,8 +97,8 @@ export function useChatwootDashboardContext() {
       if (!d || typeof d !== 'object') return;
       if (d.event !== 'appContext' && d.type !== 'appContext') return;
       const payload = d.payload ?? d.data ?? d;
-      const convId = pickConvIdFromPayload(payload);
-      if (convId) applyId(convId, 'appContext-other');
+      const ctxData = pickContextFromPayload(payload);
+      if (ctxData) applyCtx(ctxData, 'appContext-other');
     }
     window.addEventListener('message', onMessage);
 
@@ -104,7 +114,7 @@ export function useChatwootDashboardContext() {
       if (pollStopped) return;
       try {
         const id = extractConvId(window.parent.location.pathname + window.parent.location.search);
-        if (id) applyId(id, 'parent-url');
+        if (id) applyCtx({ conversationId: id, contact: null }, 'parent-url');
         setTimeout(pollParent, 600);
       } catch {
         logEvent('parent-url', false, null, 'cross-origin blocked');

@@ -238,6 +238,20 @@ export async function searchShopify(plan, creds) {
     }
   }
 
+  // Shopify usa índice fuzzy para teléfono — filtrar que los dígitos coincidan exactamente
+  if (plan.type === 'phone' && plan.phoneDigits) {
+    const sd = plan.phoneDigits.replace(/\D/g, '');
+    if (sd) {
+      customers = customers.filter((c) => {
+        const cd = (c.phone || '').replace(/\D/g, '');
+        if (!cd) return false;
+        const shorter = sd.length <= cd.length ? sd : cd;
+        const longer = sd.length <= cd.length ? cd : sd;
+        return longer.endsWith(shorter);
+      });
+    }
+  }
+
   let strictNameNote = null;
   if (plan.type === 'name' && plan.name) {
     const tokens = strictNameQueryTokens(plan.name);
