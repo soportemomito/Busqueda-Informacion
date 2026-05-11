@@ -649,6 +649,19 @@ export default function SearchPage() {
             className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-3 text-slate-900 text-sm shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-momo-400 focus:border-momo-400"
           />
         </div>
+        {/* ID del equipo derivado cuando el IMEI empieza con 8 */}
+        {/^\d{15}$/.test(input.trim()) && input.trim().startsWith('8') && (
+          <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1.5">
+            <span className="font-medium text-slate-700">ID del equipo:</span>
+            <span className="font-mono text-momo-700 font-semibold">{input.trim().slice(4, -1)}</span>
+            <button
+              type="button"
+              onClick={() => copyText(input.trim().slice(4, -1))}
+              className="text-slate-400 hover:text-momo-600"
+              title="Copiar ID del equipo"
+            >⧉</button>
+          </p>
+        )}
       </div>
 
       {/* debug (embed only) */}

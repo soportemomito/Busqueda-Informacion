@@ -99,28 +99,21 @@ export function buildSearchPlan(raw) {
   }
 
   // 6. IMEI (exactamente 15 dígitos)
+  //    Si empieza con 8 → derivar el ID del equipo quitando los 4 primeros y el último dígito
   const digitsOnly = trimmed.replace(/\s/g, '');
   if (IMEI_RE.test(digitsOnly)) {
+    const deviceId = digitsOnly.startsWith('8') ? digitsOnly.slice(4, -1) : null;
     return {
       type: 'imei',
       imei: digitsOnly,
-      chatwootQueries: [digitsOnly],
+      deviceId,
+      // Buscar por IMEI completo Y por el ID del equipo derivado
+      chatwootQueries: deviceId ? [digitsOnly, deviceId] : [digitsOnly],
       bsaleHints: {},
     };
   }
 
-  // 7. Números que empiezan en 8 con 9–14 dígitos:
-  //    formato codificado donde el ID real = quitar los primeros 4 y el último dígito
-  //    Ej: 81234056789 → slice(4,-1) → "05678" → conv ID 5678
-  if (/^8\d{8,13}$/.test(digitsOnly)) {
-    const extracted = digitsOnly.slice(4, -1);
-    const convId = Number(extracted);
-    if (convId > 0) {
-      return { type: 'conversationId', conversationId: convId, chatwootQueries: [], bsaleHints: {} };
-    }
-  }
-
-  // 8. Teléfono (8+ dígitos mayoritariamente numéricos)
+  // 7. Teléfono (8+ dígitos mayoritariamente numéricos)
   const mostlyNumeric = /^[\d\s+().-]+$/.test(trimmed);
   const digits = trimmed.replace(/\D/g, '');
   if (mostlyNumeric && digits.length >= 8) {
