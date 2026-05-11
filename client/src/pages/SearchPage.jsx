@@ -202,14 +202,14 @@ function SectionOpenTickets({ meta, onResolve, resolving, resolveError }) {
                 {url && (
                   <a href={url} target="_blank" rel="noreferrer"
                     className="rounded-lg bg-momo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-momo-700 transition-colors">
-                    Abrir ticket
+                    Ver
                   </a>
                 )}
-                {multiple && onResolve && (
+                {onResolve && (
                   <button type="button" disabled={resolving}
-                    onClick={() => { if (window.confirm(`¿Marcar #${oc.ticketId} como resuelta?`)) onResolve(oc.conversationId); }}
-                    className="rounded-lg border border-slate-300 text-slate-700 text-xs font-medium px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50">
-                    Resolver
+                    onClick={() => { if (window.confirm(`¿Cerrar ticket #${oc.ticketId}?`)) onResolve(oc.conversationId); }}
+                    className="rounded-lg border border-slate-300 text-slate-700 text-xs font-medium px-3 py-1.5 hover:bg-red-50 hover:border-red-300 hover:text-red-700 disabled:opacity-50 transition-colors">
+                    Cerrar
                   </button>
                 )}
               </div>
@@ -713,16 +713,16 @@ export default function SearchPage() {
           {/* source pills */}
           <SourceStatusBar data={data} meta={meta} />
 
-          {/* profile */}
-          <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
-
-          {/* open tickets */}
+          {/* open tickets — primero y destacado */}
           <SectionOpenTickets
             meta={meta}
             onResolve={(id) => resolveConversation.mutate(id)}
             resolving={resolveConversation.isPending}
             resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
           />
+
+          {/* profile */}
+          <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
 
           {/* ST banner */}
           <StBanner meta={meta} />
@@ -736,26 +736,25 @@ export default function SearchPage() {
           {/* shopify */}
           <SectionShopify block={sh} />
 
-          {/* chatwoot ST */}
+          {/* drive */}
+          <SectionDrive block={dr} meta={meta} query={data?.query} />
+
+          {/* historial chatwoot — al final */}
           <SectionConversations
             block={cw}
             chatwootApp={meta?.chatwootApp}
             title="Servicio técnico"
             subtitle="Tickets con etiqueta ST"
-            defaultOpen
+            defaultOpen={false}
           />
 
-          {/* chatwoot general */}
           <SectionConversations
             block={cw}
             chatwootApp={meta?.chatwootApp}
             title="Historial de conversaciones"
-            subtitle="Otros tickets del contacto"
-            defaultOpen
+            subtitle="Todos los tickets del contacto"
+            defaultOpen={false}
           />
-
-          {/* drive */}
-          <SectionDrive block={dr} meta={meta} query={data?.query} />
 
           {/* notes */}
           {meta?.bsaleNote && (
