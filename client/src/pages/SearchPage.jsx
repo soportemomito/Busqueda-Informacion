@@ -148,21 +148,21 @@ function DebugPanel({ input, onManualQuery }) {
 
           {_debugEvents.length === 0 && (
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800">
-              <p className="font-semibold">Sin mensajes todavía</p>
-              <p className="mt-0.5">Chatwoot aún no envió el contexto. El hook ya mandó la señal "loaded" — espera unos segundos o cambia de conversación.</p>
+              <p className="font-semibold">Sin datos detectados todavía</p>
+              <p className="mt-0.5">Prueba usar la búsqueda manual por ID de abajo, o verifica que el Dashboard App esté configurado en Chatwoot.</p>
             </div>
           )}
 
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {[..._debugEvents].reverse().map((e, i) => (
               <div key={i} className={`rounded-lg px-2 py-1.5 border text-[10px] ${e.matched ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className={`font-bold ${e.matched ? 'text-emerald-700' : 'text-slate-500'}`}>
-                    {e.matched ? '✓ appContext' : e.eventName}
+                    {e.matched ? '✓' : '·'} {e.source}
                   </span>
-                  {e.query && <span className="text-momo-700 font-semibold">→ buscar "{e.query}"</span>}
+                  {e.query && <span className="text-momo-700 font-semibold">→ "{e.query}"</span>}
                 </div>
-                <p className="text-slate-400 truncate mt-0.5">{e.preview}</p>
+                <p className="text-slate-400 truncate mt-0.5">{e.detail}</p>
               </div>
             ))}
           </div>
