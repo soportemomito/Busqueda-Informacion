@@ -308,9 +308,22 @@ export async function searchBsale(plan, creds) {
       const st = error.response?.status;
       docErrors.push(st ? `documentos ${clientId}: HTTP ${st}` : `documentos ${clientId}: ${error.message}`);
     }
-    for (const doc of items || []) {
+
+    // Pre-filtrar boletas cuando ya tenemos el tipo en la respuesta del listado
+    const candidates = (items || []).filter((doc) => {
+      const dt = doc.document_type;
+      if (!dt || typeof dt !== 'object' || !dt.name) return true; // tipo desconocido: mantener
+      return dt.name.toLowerCase().includes('boleta');
+    });
+
+    // Ordenar por fecha desc y tomar las últimas 3 por cliente
+    candidates.sort((a, b) => (b.emissionDate || 0) - (a.emissionDate || 0));
+    const top3 = candidates.slice(0, 3);
+
+    for (const doc of top3) {
       const enriched = await loadDocumentDetailsIfNeeded(http, doc);
-      documents.push(mapDocument(enriched));
+      const mapped = mapDocument(enriched);
+      if (mapped.isBoleta) documents.push({ ...mapped, clientId });
     }
   }
 
@@ -336,6 +349,8 @@ export async function searchBsale(plan, creds) {
 function mapDocument(doc) {
   const office = doc.office && typeof doc.office === 'object' ? doc.office : null;
   const docType = doc.document_type && typeof doc.document_type === 'object' ? doc.document_type : null;
+  const docTypeName = (docType?.name || '').toLowerCase();
+  const isBoleta = docTypeName ? docTypeName.includes('boleta') : true;
   const detailsRaw = doc.details;
   const detailsItems = Array.isArray(detailsRaw)
     ? detailsRaw
@@ -372,6 +387,7 @@ function mapDocument(doc) {
     emissionDate: doc.emissionDate,
     generationDate: doc.generationDate,
     urlPublicView: doc.urlPublicView,
+    isBoleta,
     raw: doc,
   };
 }
