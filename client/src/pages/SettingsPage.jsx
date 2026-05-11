@@ -146,16 +146,20 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
             }}
           >
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Chatwoot Base URL</label>
+              <label htmlFor="chatwootBaseUrl" className="block text-xs font-medium text-momo-700 mb-1">Chatwoot Base URL</label>
               <input
+                id="chatwootBaseUrl"
+                name="chatwootBaseUrl"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.chatwootBaseUrl}
                 onChange={(e) => setForm((f) => ({ ...f, chatwootBaseUrl: e.target.value }))}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Chatwoot API Token</label>
+              <label htmlFor="chatwootApiToken" className="block text-xs font-medium text-momo-700 mb-1">Chatwoot API Token</label>
               <input
+                id="chatwootApiToken"
+                name="chatwootApiToken"
                 type="password"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.chatwootApiToken}
@@ -164,16 +168,20 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Chatwoot Account ID</label>
+              <label htmlFor="chatwootAccountId" className="block text-xs font-medium text-momo-700 mb-1">Chatwoot Account ID</label>
               <input
+                id="chatwootAccountId"
+                name="chatwootAccountId"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.chatwootAccountId}
                 onChange={(e) => setForm((f) => ({ ...f, chatwootAccountId: e.target.value }))}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Bsale API Token</label>
+              <label htmlFor="bsaleApiToken" className="block text-xs font-medium text-momo-700 mb-1">Bsale API Token</label>
               <input
+                id="bsaleApiToken"
+                name="bsaleApiToken"
                 type="password"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.bsaleApiToken}
@@ -182,8 +190,10 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Shopify — URL Admin API</label>
+              <label htmlFor="shopifyAdminApiUrl" className="block text-xs font-medium text-momo-700 mb-1">Shopify — URL Admin API</label>
               <input
+                id="shopifyAdminApiUrl"
+                name="shopifyAdminApiUrl"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm font-mono text-xs"
                 value={form.shopifyAdminApiUrl}
                 onChange={(e) => setForm((f) => ({ ...f, shopifyAdminApiUrl: e.target.value }))}
@@ -191,8 +201,10 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Shopify — Access token (shpat_…)</label>
+              <label htmlFor="shopifyAccessToken" className="block text-xs font-medium text-momo-700 mb-1">Shopify — Access token (shpat_…)</label>
               <input
+                id="shopifyAccessToken"
+                name="shopifyAccessToken"
                 type="password"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.shopifyAccessToken}
@@ -201,8 +213,10 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Shopify — Webhook secret (opcional)</label>
+              <label htmlFor="shopifyWebhookSecret" className="block text-xs font-medium text-momo-700 mb-1">Shopify — Webhook secret (opcional)</label>
               <input
+                id="shopifyWebhookSecret"
+                name="shopifyWebhookSecret"
                 type="password"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm"
                 value={form.shopifyWebhookSecret}
@@ -216,8 +230,10 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Drive — ID carpeta padre</label>
+              <label htmlFor="driveParentFolderId" className="block text-xs font-medium text-momo-700 mb-1">Drive — ID carpeta padre</label>
               <input
+                id="driveParentFolderId"
+                name="driveParentFolderId"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm font-mono text-xs"
                 value={form.driveParentFolderId}
                 onChange={(e) => setForm((f) => ({ ...f, driveParentFolderId: e.target.value }))}
@@ -225,8 +241,10 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-momo-700 mb-1">Drive — JSON cuenta de servicio</label>
+              <label htmlFor="driveServiceAccountKey" className="block text-xs font-medium text-momo-700 mb-1">Drive — JSON cuenta de servicio</label>
               <textarea
+                id="driveServiceAccountKey"
+                name="driveServiceAccountKey"
                 className="w-full rounded-lg border border-momo-200 px-3 py-2 text-xs font-mono min-h-[120px]"
                 value={form.driveServiceAccountKey}
                 onChange={(e) => setForm((f) => ({ ...f, driveServiceAccountKey: e.target.value }))}

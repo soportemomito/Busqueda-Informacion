@@ -657,10 +657,12 @@ export default function SearchPage() {
 
       {/* search bar */}
       <div className="mb-5">
+        <label htmlFor="q" className="sr-only">Buscar cliente</label>
         <div className="relative">
           <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">🔍</span>
           <input
             id="q"
+            name="q"
             type="search"
             autoComplete="off"
             placeholder="ID, IMEI, RUT, correo o nombre completo…"
