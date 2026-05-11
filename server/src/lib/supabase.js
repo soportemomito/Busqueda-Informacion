@@ -8,7 +8,7 @@ export function getSupabase() {
   return createClient(url, key);
 }
 
-const IDENTIFIER_LABELS = new Set(['ID / IMEI', 'ICCID / SIM', 'Serial', 'Email', 'Teléfono', 'Pedido Shopify']);
+const IDENTIFIER_LABELS = new Set(['ID / IMEI', 'ICCID / SIM', 'Serial', 'RUT', 'Email', 'Teléfono', 'Pedido Shopify']);
 
 /**
  * Guarda los device facts extraídos de una búsqueda.

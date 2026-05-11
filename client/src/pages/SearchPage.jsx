@@ -253,51 +253,33 @@ function deriveSourceStatuses(data, meta) {
   return items;
 }
 
-function SourceStatusStrip({ data, meta, embed }) {
+function SourceStatusBar({ data, meta }) {
   if (!data || !meta) return null;
   const items = deriveSourceStatuses(data, meta);
-  const toneCls = {
-    ok: 'border-emerald-200/90 bg-emerald-50/80 text-emerald-950',
-    error: 'border-red-200/90 bg-red-50/90 text-red-950',
-    warn: 'border-amber-200/90 bg-amber-50/80 text-amber-950',
-    skipped: 'border-slate-200/90 bg-slate-50/90 text-slate-600',
+  const pill = {
+    ok: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    error: 'bg-red-50 text-red-800 border-red-200',
+    warn: 'bg-amber-50 text-amber-800 border-amber-200',
+    skipped: 'bg-slate-50 text-slate-500 border-slate-200',
   };
-  const accent = {
-    ok: 'accent-emerald-600',
-    error: 'accent-red-600',
-    warn: 'accent-amber-600',
-    skipped: 'accent-slate-400 opacity-70',
+  const dot = {
+    ok: 'bg-emerald-500',
+    error: 'bg-red-500',
+    warn: 'bg-amber-400',
+    skipped: 'bg-slate-300',
   };
-
   return (
-    <div
-      className={`mb-3 rounded-lg border border-slate-200/90 bg-white px-2 py-2 shadow-sm ${
-        embed ? 'px-2 py-1.5' : ''
-      }`}
-    >
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-        Estado de fuentes
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {items.map((it) => (
-          <label
-            key={it.id}
-            className={`inline-flex items-center gap-2 rounded-md border px-2 py-1 cursor-default select-none ${toneCls[it.tone]}`}
-            title={it.title}
-          >
-            <input
-              type="checkbox"
-              readOnly
-              checked={it.checked}
-              disabled={it.tone === 'skipped'}
-              className={`${accent[it.tone]} h-3.5 w-3.5 rounded border-slate-300 shrink-0 pointer-events-none`}
-              aria-label={`${it.label}: ${it.caption}`}
-            />
-            <span className={`font-semibold ${embed ? 'text-[11px]' : 'text-xs'}`}>{it.label}</span>
-            <span className={`opacity-90 ${embed ? 'text-[10px]' : 'text-[11px]'}`}>{it.caption}</span>
-          </label>
-        ))}
-      </div>
+    <div className="mb-3 flex flex-wrap gap-1.5">
+      {items.map((it) => (
+        <span
+          key={it.id}
+          title={it.title}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${pill[it.tone]}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dot[it.tone]}`} />
+          {it.label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -345,8 +327,7 @@ export default function SearchPage() {
     <div className={shellCls}>
       {embed && (
         <p className="text-[11px] text-momo-600 mb-3 border-b border-momo-200 pb-2 leading-snug">
-          Panel para Chatwoot: correo, teléfono, nombre, <strong>cw:ID</strong> (ID interno de conversación). Resumen IA y
-          datos de equipo se extraen del ticket cuando el cliente los escribe en el chat.
+          Búsqueda automática al abrir una conversación: extrae contacto, tickets, pedidos Shopify (#SM…), IMEI/SIM y más. Puedes buscar también manualmente.
         </p>
       )}
 
@@ -373,62 +354,6 @@ export default function SearchPage() {
         </div>
       )}
 
-      {meta?.multipleOpenChats && (
-        <div className="mb-3 rounded-lg border border-orange-300 bg-orange-50 text-orange-950 text-sm px-3 py-3 space-y-3">
-          <p>
-            <strong>Atención:</strong> hay {meta.openConversationsCount} conversaciones <strong>abiertas</strong>. Si tu
-            instancia de Chatwoot ofrece <strong>Fusionar conversaciones</strong>, hazlo desde el menú del ticket
-            principal (no hay API estable para fusionar desde esta app). Si no, compara el resumen IA y usa{' '}
-            <strong>Marcar resuelta</strong> en los duplicados.
-          </p>
-          {meta.openConversations?.length > 0 && (
-            <ul className="space-y-2 text-xs">
-              {meta.openConversations.map((oc) => {
-                const url = chatwootConversationUrl(meta.chatwootApp, oc.conversationId);
-                return (
-                  <li
-                    key={oc.conversationId}
-                    className="flex flex-wrap items-center gap-2 rounded-md bg-white/80 border border-orange-200/80 px-2 py-2"
-                  >
-                    <span className="font-medium text-orange-950">
-                      #{oc.ticketId} · {oc.channel || '—'} · {oc.status}
-                    </span>
-                    {url && (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-momo-700 underline font-medium"
-                      >
-                        Abrir en Chatwoot
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      disabled={resolveConversation.isPending}
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            `¿Marcar la conversación #${oc.ticketId} como resuelta? Deja abierta la que quieras seguir.`,
-                          )
-                        )
-                          return;
-                        resolveConversation.mutate(oc.conversationId);
-                      }}
-                      className="rounded-md border border-orange-400 bg-white px-2 py-1 text-orange-900 hover:bg-orange-100 disabled:opacity-50"
-                    >
-                      Marcar resuelta
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {resolveConversation.isError && (
-            <p className="text-red-800 text-xs">{resolveConversation.error?.message}</p>
-          )}
-        </div>
-      )}
 
       <div className="mb-5">
         <label htmlFor="q" className={`block font-medium text-momo-800 mb-1.5 ${embed ? 'text-xs' : 'text-sm'}`}>
@@ -468,7 +393,19 @@ export default function SearchPage() {
         </div>
       )}
 
-      {canSearch && !isError && data && <SourceStatusStrip data={data} meta={meta} embed={embed} />}
+      {canSearch && !isError && data && (
+        <>
+          <ContactInfoTable meta={meta} bsBlock={bs} cwBlock={cw} dense={embed} />
+          <SectionOpenTickets
+            meta={meta}
+            onResolve={(id) => resolveConversation.mutate(id)}
+            resolving={resolveConversation.isPending}
+            resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
+            dense={embed}
+          />
+          <SourceStatusBar data={data} meta={meta} />
+        </>
+      )}
 
       {meta?.bsaleNote && canSearch && !isError && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
@@ -517,6 +454,7 @@ export default function SearchPage() {
               Chatwoot: {cw.error}
             </div>
           )}
+          <SectionSimilarTickets meta={meta} dense={embed} />
           <SectionBsale block={bs} dense={embed} />
           <SectionShopify block={sh} dense={embed} />
           <SectionChatwootST block={cw} chatwootApp={meta?.chatwootApp} dense={embed} />
@@ -524,6 +462,232 @@ export default function SearchPage() {
           <SectionDrive block={dr} meta={meta} dense={embed} query={data?.query} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ContactInfoTable({ meta, bsBlock, cwBlock, dense }) {
+  const cs = meta?.contactSummary;
+  const facts = meta?.equipmentFacts || [];
+  const rows = [];
+
+  const name = cs?.name || cwBlock?.data?.contacts?.[0]?.name;
+  if (name) rows.push({ label: 'Nombre', value: name, copy: true });
+
+  const email = cs?.email;
+  if (email) rows.push({ label: 'Mail', value: email, copy: true });
+
+  const phone = cs?.phone || cwBlock?.data?.contacts?.[0]?.phone;
+  if (phone) rows.push({ label: 'Teléfono', value: phone, copy: true });
+
+  const rut = (cs?.ruts || facts.filter((f) => f.label === 'RUT').map((f) => f.value))[0];
+  if (rut) rows.push({ label: 'RUT', value: rut, copy: true });
+
+  const smOrders = cs?.smOrders || cwBlock?.data?.shopifyOrdersFromMessages || [];
+  if (smOrders.length) rows.push({ label: 'SM / Pedido', value: smOrders.join(', '), copy: true });
+
+  const bsaleItem = bsBlock?.data?.items?.[0];
+  if (bsaleItem) {
+    rows.push({
+      label: 'Boleta Bsale',
+      value: `N° ${bsaleItem.number} · ${bsaleItem.documentType || 'Doc'}`,
+      link: bsaleItem.urlPublicView || null,
+    });
+  }
+
+  const imei = facts.find((f) => f.label === 'ID / IMEI')?.value;
+  if (imei) rows.push({ label: 'ID / IMEI', value: imei, copy: true });
+
+  const sim = facts.find((f) => f.label === 'ICCID / SIM')?.value;
+  if (sim) rows.push({ label: 'SIM (ICCID)', value: sim, copy: true });
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-momo-200 bg-white shadow-sm overflow-hidden">
+      <p className="text-[10px] font-semibold text-momo-700 uppercase tracking-wide px-3 py-2 border-b border-momo-100 bg-momo-50/60">
+        Datos recopilados del cliente
+      </p>
+      <div className="divide-y divide-slate-100">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center gap-2 px-3 py-1.5">
+            <span className={`font-semibold text-momo-600 shrink-0 ${dense ? 'text-[10px] w-20' : 'text-[11px] w-24'}`}>
+              {r.label}
+            </span>
+            <span className={`text-slate-900 break-all flex-1 ${dense ? 'text-[11px]' : 'text-xs'}`}>
+              {r.link ? (
+                <a href={r.link} target="_blank" rel="noreferrer" className="underline text-momo-700">
+                  {r.value}
+                </a>
+              ) : (
+                r.value
+              )}
+            </span>
+            {r.copy && (
+              <button
+                type="button"
+                onClick={() => copyText(r.value)}
+                className="text-[10px] text-momo-400 hover:text-momo-700 shrink-0"
+                title="Copiar"
+              >
+                ⧉
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionSimilarTickets({ meta, dense }) {
+  const groups = meta?.similarTickets || [];
+  if (!groups.length) return null;
+
+  const chatwootApp = meta?.chatwootApp;
+
+  return (
+    <CollapsibleResultSection
+      title="Tickets similares"
+      subtitle="Comparten identificadores con este ticket"
+      badge={groups.length}
+      defaultOpen
+      dense={dense}
+    >
+      {groups.map((g) => {
+        const url = chatwootConversationUrl(chatwootApp, g.conversationId);
+        return (
+          <ExpandableRow
+            key={g.conversationId}
+            dense={dense}
+            summary={
+              <div className="space-y-1">
+                <div className={`flex flex-wrap items-center gap-2 ${dense ? 'text-[11px]' : 'text-xs'}`}>
+                  <span className="font-semibold text-momo-900">
+                    Conversación #{g.conversationId}
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      g.confident
+                        ? 'bg-momo-100 text-momo-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {g.matches.length} coincidencia{g.matches.length !== 1 ? 's' : ''}
+                  </span>
+                  {!g.confident && (
+                    <span className="text-[10px] text-amber-700 italic">
+                      — Solo 1 similitud, puede no ser el mismo caso
+                    </span>
+                  )}
+                  {url && (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-momo-600 underline font-semibold text-[11px] ml-auto"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Abrir →
+                    </a>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {g.matches.map((m, i) => (
+                    <span
+                      key={i}
+                      className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded"
+                    >
+                      {m.label}: {m.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            }
+          >
+            {JSON.stringify(g, null, 2)}
+          </ExpandableRow>
+        );
+      })}
+    </CollapsibleResultSection>
+  );
+}
+
+function SectionOpenTickets({ meta, onResolve, resolving, resolveError, dense }) {
+  const open = meta?.openConversations || [];
+  if (!open.length) return null;
+  const multiple = open.length > 1;
+  return (
+    <div
+      className={`mb-3 rounded-lg border px-3 py-2.5 ${
+        multiple ? 'border-orange-300 bg-orange-50' : 'border-momo-200 bg-momo-50/60'
+      }`}
+    >
+      <p
+        className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${
+          multiple ? 'text-orange-900' : 'text-momo-800'
+        }`}
+      >
+        {open.length === 1 ? 'Ticket abierto' : `${open.length} tickets abiertos`}
+        {multiple && (
+          <span className="ml-2 normal-case font-medium text-orange-700">
+            — Verifica si hay duplicados
+          </span>
+        )}
+      </p>
+      <ul className="space-y-1.5">
+        {open.map((oc) => {
+          const url = chatwootConversationUrl(meta.chatwootApp, oc.conversationId);
+          return (
+            <li
+              key={oc.conversationId}
+              className={`flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5 bg-white/80 ${
+                multiple ? 'border-orange-200' : 'border-momo-200/70'
+              }`}
+            >
+              <span
+                className={`font-semibold ${dense ? 'text-[11px]' : 'text-xs'} ${
+                  multiple ? 'text-orange-950' : 'text-momo-900'
+                }`}
+              >
+                #{oc.ticketId}
+              </span>
+              <span className={`text-momo-600 ${dense ? 'text-[10px]' : 'text-[11px]'}`}>
+                {oc.channel || '—'} · {oc.agent || '—'}
+              </span>
+              <span className="text-[10px] text-momo-500">{formatIso(oc.date)}</span>
+              {url && (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-momo-600 underline font-semibold text-[11px] ml-auto"
+                >
+                  Abrir →
+                </a>
+              )}
+              {onResolve && (
+                <button
+                  type="button"
+                  disabled={resolving}
+                  onClick={() => {
+                    if (!window.confirm(`¿Marcar #${oc.ticketId} como resuelta?`)) return;
+                    onResolve(oc.conversationId);
+                  }}
+                  className={`rounded border px-2 py-0.5 text-[11px] disabled:opacity-50 ${
+                    multiple
+                      ? 'border-orange-300 text-orange-900 hover:bg-orange-50'
+                      : 'border-momo-300 text-momo-800 hover:bg-momo-50'
+                  } bg-white`}
+                >
+                  Resolver
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {resolveError && <p className="text-red-800 text-[11px] mt-1">{resolveError}</p>}
     </div>
   );
 }
@@ -630,7 +794,7 @@ function CwRowSummary({ row, chatwootApp, dense }) {
         </span>
         <span className="text-momo-600 font-normal">{row.status || '—'}</span>
         {row.isOpen && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-900">Abierta</span>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-momo-100 text-momo-800">Abierta</span>
         )}
         {cwUrl && (
           <a

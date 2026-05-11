@@ -13,6 +13,8 @@ const PAIRS = [
   [/sku\s*:\s*([^\n]+)/gi, 'SKU'],
   [/suscripci[oó]n\s*:\s*(\d{14,22})/gi, 'ICCID / SIM'],
   [/(?:n[uú]mero\s*(?:de\s*)?(?:sim|tarjeta\s*sim|suscripci[oó]n)|iccid)\s*:\s*(\d{14,22})/gi, 'ICCID / SIM'],
+  // Chilean RUT with explicit label (12.345.678-9 or 12345678-9)
+  [/\brut\s*[:\s.]+\s*([\d]{1,2}\.?[\d]{3}\.?[\d]{3,4}-?[0-9kK])/gi, 'RUT'],
 ];
 
 function clean(s) {

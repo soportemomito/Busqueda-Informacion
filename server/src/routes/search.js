@@ -66,17 +66,21 @@ function collectEquipmentFactsFromCwData(cwData) {
 }
 
 /**
- * Recoge emails y números de pedido Shopify de todos los resultados disponibles.
- * Se usa para enriquecer plataformas que quedaron vacías en el primer wave.
+ * Recoge emails, teléfonos, RUTs y números de pedido Shopify de todos los
+ * resultados disponibles. Se usa para enriquecer plataformas vacías.
  */
 function buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock) {
   const emails = [];
   const orderNumbers = [];
+  const phones = [];
+  const ruts = [];
 
   if (chatwootBlock.status === 'ok' && chatwootBlock.data) {
     emails.push(...(chatwootBlock.data.emailsFromContacts || []));
     emails.push(...(chatwootBlock.data.emailsFromMessages || []));
     orderNumbers.push(...(chatwootBlock.data.shopifyOrdersFromMessages || []));
+    phones.push(...(chatwootBlock.data.phonesFromContacts || []));
+    ruts.push(...(chatwootBlock.data.rutsFromMessages || []));
   }
   if (bsaleBlock.status === 'ok' && bsaleBlock.data) {
     for (const c of bsaleBlock.data.clients || []) {
@@ -86,6 +90,7 @@ function buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock) {
   if (shopifyBlock.status === 'ok' && shopifyBlock.data && !shopifyBlock.data.skipped) {
     for (const c of shopifyBlock.data.customers || []) {
       if (c.email) emails.push(c.email.toLowerCase());
+      if (c.phone) phones.push(c.phone);
     }
     for (const o of shopifyBlock.data.orders || []) {
       if (o.name) orderNumbers.push(o.name);
@@ -94,12 +99,36 @@ function buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock) {
 
   const uniqueEmails = [...new Set(emails.filter(Boolean))];
   const uniqueOrders = [...new Set(orderNumbers.filter(Boolean))];
+  const uniquePhones = [...new Set(phones.filter(Boolean))];
+  const uniqueRuts = [...new Set(ruts.filter(Boolean))];
   return {
     email: uniqueEmails[0] || null,
     emails: uniqueEmails,
+    phone: uniquePhones[0] || null,
+    phones: uniquePhones,
+    rut: uniqueRuts[0] || null,
+    ruts: uniqueRuts,
     orderNumber: uniqueOrders[0] || null,
     orderNumbers: uniqueOrders,
   };
+}
+
+/**
+ * Agrupa los resultados de relatedByDevice por conversationId y
+ * cuenta cuántos identificadores coinciden.
+ * Sólo incluye conversaciones con ≥1 match; marca `confident: true` si ≥2.
+ */
+function groupSimilarTickets(relatedByDevice) {
+  const byConv = new Map();
+  for (const row of relatedByDevice || []) {
+    if (!byConv.has(row.conversationId)) {
+      byConv.set(row.conversationId, { conversationId: row.conversationId, matches: [] });
+    }
+    byConv.get(row.conversationId).matches.push({ label: row.label, value: row.value });
+  }
+  return [...byConv.values()]
+    .map((g) => ({ ...g, confident: g.matches.length >= 2 }))
+    .sort((a, b) => b.matches.length - a.matches.length);
 }
 
 function buildUnifiedProfile(chatwootBlock, bsaleBlock, shopifyBlock) {
@@ -334,13 +363,21 @@ searchRouter.get('/', async (req, res) => {
         ((shopifyBlock.data?.orders?.length ?? 0) === 0 &&
           (shopifyBlock.data?.customers?.length ?? 0) === 0));
 
-    if ((pivot.email || pivot.orderNumber) && (cwEmpty || bsEmpty || shEmpty)) {
+    if ((pivot.email || pivot.phone || pivot.rut || pivot.orderNumber) && (cwEmpty || bsEmpty || shEmpty)) {
       const tasks = [];
       if (pivot.email) {
         const ep = buildSearchPlan(pivot.email);
         if (bsEmpty) tasks.push({ key: 'bsale', p: searchBsale(ep, creds) });
         if (shEmpty) tasks.push({ key: 'shopify', p: searchShopify(ep, creds) });
         if (cwEmpty) tasks.push({ key: 'chatwoot', p: searchChatwoot(ep, creds) });
+      }
+      // Enriquecer Bsale con teléfono si sigue vacío
+      if (pivot.phone && bsEmpty && !tasks.find((t) => t.key === 'bsale')) {
+        tasks.push({ key: 'bsale', p: searchBsale(buildSearchPlan(pivot.phone), creds) });
+      }
+      // Enriquecer Bsale con RUT si sigue vacío
+      if (pivot.rut && bsEmpty && !tasks.find((t) => t.key === 'bsale')) {
+        tasks.push({ key: 'bsale', p: searchBsale(buildSearchPlan(pivot.rut), creds) });
       }
       // Si no hay email pero hay número de pedido Shopify, intentar Shopify por ese pedido
       if (pivot.orderNumber && shEmpty && !tasks.find((t) => t.key === 'shopify')) {
@@ -445,6 +482,7 @@ searchRouter.get('/', async (req, res) => {
 
   const currentConvIds = [...new Set(allIdentifiers.map((f) => f.conversationId).filter(Boolean))];
   const relatedByDevice = await lookupRelatedByDevice(supabase, allIdentifiers, currentConvIds);
+  const similarTickets = groupSimilarTickets(relatedByDevice);
   upsertDeviceFacts(supabase, allIdentifiers); // fire-and-forget, no bloquea respuesta
 
   const meta = {
@@ -477,6 +515,14 @@ searchRouter.get('/', async (req, res) => {
     },
     equipmentFacts,
     relatedByDevice,
+    similarTickets,
+    contactSummary: {
+      name: cwData?.contacts?.[0]?.name || null,
+      email: (cwData?.emailsFromContacts || [])[0] || null,
+      phone: (cwData?.phonesFromContacts || [])[0] || null,
+      ruts: cwData?.rutsFromMessages || [],
+      smOrders: cwData?.shopifyOrdersFromMessages || [],
+    },
     strictNameNote: strictNameNotes.length ? [...new Set(strictNameNotes)].join(' ') : null,
   };
 

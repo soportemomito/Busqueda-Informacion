@@ -394,6 +394,14 @@ export async function searchChatwoot(plan, creds) {
       if (em && em.includes('@')) emailsFromContacts.add(em);
     }
 
+    const phonesFromContacts = new Set();
+    for (const c of contactList) {
+      const ph = (c.phone_number || c.phone || '').trim();
+      if (ph) phonesFromContacts.add(ph);
+    }
+    const allFacts = [...(convDeviceFacts.get(finalConv.id) || [])];
+    const rutsFromMessages = [...new Set(allFacts.filter((f) => f.label === 'RUT').map((f) => f.value))];
+
     return {
       contacts: contactList,
       servicioTecnico,
@@ -403,6 +411,8 @@ export async function searchChatwoot(plan, creds) {
       emailsFromContacts: [...emailsFromContacts],
       emailsFromMessages: [...emailsFromMessages],
       shopifyOrdersFromMessages: [...shopifyOrdersFromMessages],
+      phonesFromContacts: [...phonesFromContacts],
+      rutsFromMessages,
       contactCount: contactList.length,
       conversationCount: all.length,
       openConversationsCount: openIds.size,
@@ -541,6 +551,14 @@ export async function searchChatwoot(plan, creds) {
     if (em && em.includes('@')) emailsFromContacts.add(em);
   }
 
+  const phonesFromContacts = new Set();
+  for (const c of contactList) {
+    const ph = (c.phone_number || '').trim();
+    if (ph) phonesFromContacts.add(ph);
+  }
+  const allFlatFacts = [...convDeviceFacts.values()].flat();
+  const rutsFromMessages = [...new Set(allFlatFacts.filter((f) => f.label === 'RUT').map((f) => f.value))];
+
   return {
     contacts: contactList.map((c) => ({
       id: c.id,
@@ -555,6 +573,8 @@ export async function searchChatwoot(plan, creds) {
     emailsFromContacts: [...emailsFromContacts],
     emailsFromMessages: [...emailsFromMessages],
     shopifyOrdersFromMessages: [...shopifyOrdersFromMessages],
+    phonesFromContacts: [...phonesFromContacts],
+    rutsFromMessages,
     contactCount: contactList.length,
     conversationCount: all.length,
     openConversationsCount: openIds.size,
