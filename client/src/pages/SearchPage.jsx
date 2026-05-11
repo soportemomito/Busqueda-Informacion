@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSearch, resolveChatwootConversation } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
-import { useChatwootDashboardContext, isDashboardEmbed, _debugEvents } from '../hooks/useChatwootDashboardContext.js';
+import { isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -112,83 +112,6 @@ function SourceStatusBar({ data, meta }) {
           {it.label}
         </span>
       ))}
-    </div>
-  );
-}
-
-// ─── debug panel ──────────────────────────────────────────────────────────────
-
-function DebugPanel({ input, onManualQuery }) {
-  const [show, setShow] = useState(false);
-  const [manualId, setManualId] = useState('');
-  const [tick, setTick] = useState(0);
-
-  // refresh every second while open so the log updates live
-  useEffect(() => {
-    if (!show) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [show]);
-
-  return (
-    <div className="mb-3">
-      <button
-        type="button"
-        onClick={() => setShow((v) => !v)}
-        className="text-[10px] text-slate-400 hover:text-momo-600 underline"
-      >
-        {show ? 'Ocultar diagnóstico' : 'Diagnóstico auto-búsqueda'}
-      </button>
-      {show && (
-        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] space-y-2">
-          <p className="font-bold text-slate-700">
-            Mensajes recibidos de Chatwoot: {_debugEvents.length}
-            <span className="ml-2 font-normal text-slate-400">(se actualiza en vivo)</span>
-          </p>
-
-          {_debugEvents.length === 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800">
-              <p className="font-semibold">Sin datos detectados todavía</p>
-              <p className="mt-0.5">Prueba usar la búsqueda manual por ID de abajo, o verifica que el Dashboard App esté configurado en Chatwoot.</p>
-            </div>
-          )}
-
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {[..._debugEvents].reverse().map((e, i) => (
-              <div key={i} className={`rounded-lg px-2 py-1.5 border text-[10px] ${e.matched ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`font-bold ${e.matched ? 'text-emerald-700' : 'text-slate-500'}`}>
-                    {e.matched ? '✓' : '·'} {e.source}
-                  </span>
-                  {e.query && <span className="text-momo-700 font-semibold">→ "{e.query}"</span>}
-                </div>
-                <p className="text-slate-400 truncate mt-0.5">{e.detail}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="pt-2 border-t border-slate-200 space-y-2">
-            <p className="text-slate-500 font-semibold">Búsqueda manual por ID de conversación:</p>
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-momo-400"
-                placeholder="ID de conversación (ej: 1234)"
-                value={manualId}
-                onChange={(e) => setManualId(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && manualId.trim()) onManualQuery(`cw ${manualId.trim()}`); }}
-              />
-              <button
-                type="button"
-                onClick={() => { if (manualId.trim()) onManualQuery(`cw ${manualId.trim()}`); }}
-                className="rounded-lg bg-momo-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-momo-700"
-              >
-                Buscar
-              </button>
-            </div>
-          </div>
-          <p className="text-slate-400">Buscador actual: <span className="font-mono text-slate-600">"{input}"</span></p>
-        </div>
-      )}
     </div>
   );
 }
@@ -682,7 +605,6 @@ function StBanner({ meta }) {
 export default function SearchPage() {
   const qc = useQueryClient();
   const embed = isDashboardEmbed();
-  const dashCtx = useChatwootDashboardContext();
   const [input, setInput] = useState('');
   const debounced = useDebouncedValue(input.trim(), 400);
   const canSearch = debounced.length >= 2;
@@ -691,10 +613,6 @@ export default function SearchPage() {
     mutationFn: resolveChatwootConversation,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['search', debounced] }),
   });
-
-  useEffect(() => {
-    if (dashCtx?.query) setInput(dashCtx.query);
-  }, [dashCtx?.query, dashCtx?.receivedAt]);
 
   const { data, isFetching, isError, error } = useQuery({
     queryKey: ['search', debounced],
@@ -711,7 +629,6 @@ export default function SearchPage() {
   return (
     <div className={embed ? 'px-3 py-4' : 'max-w-2xl mx-auto px-4 py-8'}>
 
-
       {/* search bar */}
       <div className="mb-5">
         <div className="relative">
@@ -720,29 +637,40 @@ export default function SearchPage() {
             id="q"
             type="search"
             autoComplete="off"
-            placeholder="Nombre, correo, teléfono, N° pedido (#SM1234)…"
+            placeholder="ID, IMEI, RUT, correo o nombre completo…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-3 text-slate-900 text-sm shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-momo-400 focus:border-momo-400"
           />
         </div>
-        {dashCtx?.query && input === dashCtx.query && (
-          <p className="mt-1.5 text-[11px] text-momo-600 flex items-center gap-1">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-momo-500 animate-pulse" />
-            Búsqueda automática desde Chatwoot
-          </p>
-        )}
       </div>
 
       {/* debug (embed only) */}
-      {embed && <DebugPanel input={input} onManualQuery={(q) => setInput(q)} />}
-
       {/* empty state */}
       {!canSearch && !isFetching && (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 py-12 text-center">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 py-10 text-center px-4">
           <p className="text-2xl mb-2">🔎</p>
-          <p className="text-sm font-medium text-slate-600">Ingresa nombre, correo, teléfono o N° pedido</p>
-          <p className="text-xs text-slate-400 mt-1">Al abrir un chat en Chatwoot la búsqueda parte automáticamente</p>
+          <p className="text-sm font-medium text-slate-600 mb-3">¿Qué puedes buscar?</p>
+          <div className="flex flex-wrap justify-center gap-2 text-xs">
+            {[
+              ['ID conversación', '1234'],
+              ['IMEI', '358123456789012'],
+              ['RUT', '12.345.678-9'],
+              ['Correo', 'cliente@mail.com'],
+              ['Nombre completo', 'Ana García'],
+              ['N° pedido', '#SM38293'],
+            ].map(([label, ex]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setInput(ex)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:border-momo-300 hover:text-momo-700 hover:bg-momo-50 transition-colors"
+              >
+                <span className="font-medium">{label}</span>
+                <span className="text-slate-400 ml-1">· {ex}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

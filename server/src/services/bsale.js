@@ -191,11 +191,9 @@ export async function searchBsale(plan, creds) {
 
   if (plan.type === 'empty') return { items: [], clientIds: [], clients: [], note: null };
 
-  // Solo buscar con identificadores confiables: email, nombre completo o RUT
-  if (plan.type === 'phone') {
-    // RUT puede llegar como "phone" (mayormente dígitos con puntos/guión) — permitirlo
-    const phoneQ = String(plan.bsaleHints?.phone || plan.phoneDigits || '').trim();
-    if (!looksLikeRutOrCode(phoneQ)) return { items: [], clientIds: [], clients: [], note: null };
+  // Solo buscar con identificadores confiables: email, nombre completo (2+ palabras) o RUT
+  if (plan.type === 'phone' || plan.type === 'imei') {
+    return { items: [], clientIds: [], clients: [], note: null };
   }
   if (plan.type === 'name') {
     const parts = String(plan.name || plan.bsaleHints?.name || '').trim().split(/\s+/).filter(Boolean);
@@ -211,6 +209,9 @@ export async function searchBsale(plan, creds) {
     q = plan.email || hints.email || '';
     qEmailNorm = normalizeEmail(q);
     emailMode = true;
+  } else if (plan.type === 'rut') {
+    q = plan.rut || hints.code || '';
+    qEmailNorm = '';
   } else if (plan.type === 'phone') {
     q = hints.phone || plan.phoneDigits || '';
     qEmailNorm = '';

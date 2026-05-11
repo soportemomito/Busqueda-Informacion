@@ -1,13 +1,25 @@
 /**
- * Normaliza entrada y define estrategia fuzzy para Chatwoot / Bsale.
+ * Normaliza entrada y define estrategia de búsqueda.
+ * Tipos detectados: conversationId, email, orderNumber, rut, imei, phone, name
  */
 
 const EMAIL_RE = /\S+@\S+\.\S+/;
-/** ej. cw:12345, conv#999, conversación: 8 */
+
+/** cw 1234 / conv:999 / conversación 8 */
 const CHATWOOT_CONV_RE =
   /^(?:cw|conv|conversaci[oó]n|conversation|chatwoot)\s*[#:]?\s*(\d+)\s*$/i;
-/** ej. #SM38293, SM#38293, SM38293, #1001, SMA-2345 */
+
+/** #SM38293, SM#38293, SM38293, SMA-2345 */
 const ORDER_NUMBER_RE = /^#[A-Za-z0-9][A-Za-z0-9-]*$|^[A-Za-z]{1,4}[#-]?\d{3,8}$/;
+
+/** RUT chileno: 1.234.567-8 / 12345678-9 / 12.345.678-K */
+const RUT_RE = /^\d{1,2}(\.\d{3}){0,2}-[\dkK]$|^\d{7,8}-[\dkK]$/i;
+
+/** IMEI: exactamente 15 dígitos */
+const IMEI_RE = /^\d{15}$/;
+
+/** Número corto (3–6 dígitos) = ID de conversación Chatwoot */
+const SHORT_NUM_RE = /^\d{3,6}$/;
 
 export function normalizePhoneInput(raw) {
   let s = String(raw || '').trim();
@@ -18,50 +30,44 @@ export function normalizePhoneInput(raw) {
   return s;
 }
 
-/**
- * @param {string} raw
- * @returns {{ type: 'empty' } | { type: 'email', email: string, chatwootQueries: string[], bsaleHints: object }}
- */
 export function buildSearchPlan(raw) {
   const trimmed = String(raw || '').trim().replace(/\s+/g, ' ');
   if (!trimmed) return { type: 'empty' };
 
+  // 1. Prefijo explícito: "cw 1234"
   const cwMatch = trimmed.match(CHATWOOT_CONV_RE);
   if (cwMatch) {
     const conversationId = Number(cwMatch[1]);
     if (Number.isFinite(conversationId) && conversationId > 0) {
-      return {
-        type: 'conversationId',
-        conversationId,
-        chatwootQueries: [],
-        bsaleHints: {},
-      };
+      return { type: 'conversationId', conversationId, chatwootQueries: [], bsaleHints: {} };
     }
   }
 
-  if (EMAIL_RE.test(trimmed)) {
-    const email = trimmed.toLowerCase();
-    return {
-      type: 'email',
-      email,
-      chatwootQueries: [trimmed, email],
-      bsaleHints: { email },
-    };
+  // 2. Número corto (3–6 dígitos) → ID de conversación
+  if (SHORT_NUM_RE.test(trimmed)) {
+    const conversationId = Number(trimmed);
+    if (conversationId > 0) {
+      return { type: 'conversationId', conversationId, chatwootQueries: [], bsaleHints: {} };
+    }
   }
 
+  // 3. Email
+  if (EMAIL_RE.test(trimmed)) {
+    const email = trimmed.toLowerCase();
+    return { type: 'email', email, chatwootQueries: [trimmed, email], bsaleHints: { email } };
+  }
+
+  // 4. Número de pedido Shopify (#SM38293, SM38293, etc.)
   if (ORDER_NUMBER_RE.test(trimmed)) {
     const withoutLeadingHash = trimmed.replace(/^#+/, '');
-    const letterPart = withoutLeadingHash.replace(/[^A-Za-z]/g, '').toUpperCase(); // 'SM'
-    const digits = withoutLeadingHash.replace(/\D/g, '');                           // '38293'
-
-    // Todos los formatos que puede tener este pedido en mensajes/plataformas
+    const letterPart = withoutLeadingHash.replace(/[^A-Za-z]/g, '').toUpperCase();
+    const digits = withoutLeadingHash.replace(/\D/g, '');
     const shopifyNamesToTry = [...new Set([
-      letterPart ? `${letterPart}#${digits}` : null, // SM#38293 ← formato nativo Shopify
-      `#${letterPart}${digits}`,                      // #SM38293
-      `#${digits}`,                                   // #38293
-      letterPart ? `${letterPart}${digits}` : null,   // SM38293
+      letterPart ? `${letterPart}#${digits}` : null,
+      `#${letterPart}${digits}`,
+      `#${digits}`,
+      letterPart ? `${letterPart}${digits}` : null,
     ].filter(Boolean))];
-
     return {
       type: 'orderNumber',
       orderNumber: `#${letterPart}${digits}`,
@@ -69,11 +75,34 @@ export function buildSearchPlan(raw) {
       shopifyNamesToTry,
       digits,
       letterPart,
-      chatwootQueries: shopifyNamesToTry, // buscar cualquier variante en mensajes
+      chatwootQueries: shopifyNamesToTry,
       bsaleHints: {},
     };
   }
 
+  // 5. RUT chileno (antes de IMEI/teléfono para que el guión no confunda)
+  if (RUT_RE.test(trimmed)) {
+    const clean = trimmed.replace(/\./g, ''); // sin puntos para variantes en mensajes
+    return {
+      type: 'rut',
+      rut: trimmed,
+      chatwootQueries: [trimmed, clean],
+      bsaleHints: { code: trimmed },
+    };
+  }
+
+  // 6. IMEI (exactamente 15 dígitos)
+  const digitsOnly = trimmed.replace(/\s/g, '');
+  if (IMEI_RE.test(digitsOnly)) {
+    return {
+      type: 'imei',
+      imei: digitsOnly,
+      chatwootQueries: [digitsOnly],
+      bsaleHints: {},
+    };
+  }
+
+  // 7. Teléfono (8+ dígitos)
   const mostlyNumeric = /^[\d\s+().-]+$/.test(trimmed);
   const digits = trimmed.replace(/\D/g, '');
   if (mostlyNumeric && digits.length >= 8) {
@@ -87,6 +116,7 @@ export function buildSearchPlan(raw) {
     };
   }
 
+  // 8. Nombre (por defecto)
   return {
     type: 'name',
     name: trimmed,
