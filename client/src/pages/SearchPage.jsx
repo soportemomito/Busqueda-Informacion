@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSearch, resolveChatwootConversation, fetchContactPreview } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
-import { useChatwootDashboardContext, isDashboardEmbed, _debugEvents } from '../hooks/useChatwootDashboardContext.js';
+import { useChatwootDashboardContext, isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -650,8 +650,6 @@ export default function SearchPage() {
   const dr = data?.drive;
   const meta = data?.meta;
 
-  const showDebug = new URLSearchParams(window.location.search).get('debug') === '1';
-
   return (
     <div className={embed ? 'px-3 py-4' : 'max-w-2xl mx-auto px-4 py-8'}>
 
@@ -809,40 +807,6 @@ export default function SearchPage() {
         </div>
       )}
 
-      {/* debug panel — solo con ?debug=1 en la URL */}
-      {showDebug && <DebugPanel ctxConvId={ctxConvId} ctxContact={ctxContact} contactPreview={contactPreview} />}
-    </div>
-  );
-}
-
-function DebugPanel({ ctxConvId, ctxContact, contactPreview }) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((v) => v + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const events = [..._debugEvents].reverse().slice(0, 15);
-
-  return (
-    <div className="mt-6 rounded-xl border border-slate-300 bg-slate-900 text-white p-3 text-[10px] font-mono">
-      <p className="font-bold text-slate-300 mb-2">Debug Chatwoot (tick {tick})</p>
-      <div className="mb-2 space-y-0.5">
-        <p>convId: <span className="text-yellow-300">{ctxConvId ?? 'null'}</span></p>
-        <p>name: <span className="text-yellow-300">{ctxContact?.name ?? 'null'}</span></p>
-        <p>email: <span className="text-yellow-300">{ctxContact?.email ?? 'null'}</span></p>
-        <p>phone: <span className="text-yellow-300">{ctxContact?.phone ?? 'null'}</span></p>
-        <p>preview API: <span className="text-yellow-300">{JSON.stringify(contactPreview ?? null)}</span></p>
-      </div>
-      <p className="text-slate-400 mb-1">Mensajes recibidos ({_debugEvents.length}):</p>
-      <div className="space-y-0.5 max-h-48 overflow-auto">
-        {events.length === 0 && <p className="text-slate-500 italic">Sin eventos aún</p>}
-        {events.map((e, i) => (
-          <div key={i} className={e.matched ? 'text-green-400' : 'text-slate-400'}>
-            <span className="text-slate-500">[{e.source}]</span> {e.detail}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
