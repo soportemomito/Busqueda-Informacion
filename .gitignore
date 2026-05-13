@@ -5,3 +5,4 @@ server/.env
 client/dist/
 *.log
 .DS_Store
+searchinfo-*.json
