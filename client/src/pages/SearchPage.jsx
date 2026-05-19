@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSearch, resolveChatwootConversation, fetchContactPreview } from '../api/client.js';
+import { fetchSearch, resolveChatwootConversation, fetchContactPreview, fetchConversationSummary } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
 import { useChatwootDashboardContext, isDashboardEmbed } from '../hooks/useChatwootDashboardContext.js';
 import { CollapsibleResultSection } from '../components/CollapsibleResultSection.jsx';
@@ -606,6 +606,91 @@ function StBanner({ meta }) {
   );
 }
 
+// ─── intelligent summary ──────────────────────────────────────────────────────
+
+function SectionIntelligentSummary({ summaryData }) {
+  if (!summaryData?.summary) return null;
+  const { summary, relatedTickets } = summaryData;
+
+  return (
+    <div className="mb-6 space-y-4">
+      <div className="rounded-xl border border-momo-300 bg-gradient-to-br from-white to-momo-50 overflow-hidden shadow-sm">
+        <div className="px-4 py-3 border-b border-momo-100 bg-white/50 flex justify-between items-center">
+          <h2 className="font-bold text-momo-800 text-sm flex items-center gap-2">
+            ✨ Resumen Inteligente de la Conversación
+          </h2>
+          <span className="text-xs font-medium text-slate-500">Actualizado: {formatIso(summary.updated_at)}</span>
+        </div>
+        
+        <div className="px-4 py-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Cliente</p>
+              <p className="text-sm font-semibold text-slate-800">{summary.contact_name || 'Desconocido'}</p>
+              <p className="text-xs text-slate-600">{summary.contact_email || 'Sin correo'} · {summary.contact_phone || 'Sin teléfono'}</p>
+            </div>
+            
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Datos extraídos</p>
+              <div className="flex flex-wrap gap-1.5">
+                {summary.extracted_imei?.map(imei => (
+                  <span key={`imei-${imei}`} className="text-[11px] bg-blue-100 text-blue-800 rounded-full px-2 py-0.5 font-medium border border-blue-200">IMEI: {imei}</span>
+                ))}
+                {summary.extracted_sim?.map(sim => (
+                  <span key={`sim-${sim}`} className="text-[11px] bg-emerald-100 text-emerald-800 rounded-full px-2 py-0.5 font-medium border border-emerald-200">SIM: {sim}</span>
+                ))}
+                {summary.extracted_shopify_orders?.map(sm => (
+                  <span key={`sm-${sm}`} className="text-[11px] bg-purple-100 text-purple-800 rounded-full px-2 py-0.5 font-medium border border-purple-200">Pedido: {sm}</span>
+                ))}
+                {summary.extracted_st_tickets?.map(st => (
+                  <span key={`st-${st}`} className="text-[11px] bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 font-medium border border-amber-200">ST: {st}</span>
+                ))}
+                {(!summary.extracted_imei?.length && !summary.extracted_sim?.length && !summary.extracted_shopify_orders?.length && !summary.extracted_st_tickets?.length) && (
+                  <span className="text-xs text-slate-400 italic">No se encontraron datos en los mensajes</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {summary.ai_summary ? (
+            <div className="bg-white rounded-lg p-3 border border-slate-200 shadow-sm">
+              <p className="text-sm text-slate-700 leading-relaxed">{summary.ai_summary}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 italic">Sin resumen generado por IA aún.</p>
+          )}
+        </div>
+      </div>
+
+      {relatedTickets?.length > 0 && (
+        <CollapsibleResultSection title="Tickets Relacionados" subtitle="Mismo cliente, IMEI o SIM" badge={relatedTickets.length} defaultOpen>
+          <div className="divide-y divide-slate-100">
+            {relatedTickets.map((t) => (
+              <div key={t.conversation_id} className="px-4 py-3 flex items-start gap-3 bg-white hover:bg-slate-50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-slate-800 text-sm">#{t.conversation_id}</span>
+                    <span className="text-xs text-slate-400">{formatIso(t.last_message_at || t.updated_at)}</span>
+                  </div>
+                  {t.ai_summary ? (
+                    <p className="text-xs text-slate-600 line-clamp-2">{t.ai_summary}</p>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Sin resumen</p>
+                  )}
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {t.extracted_imei?.map(i => <span key={i} className="text-[10px] text-blue-600 bg-blue-50 px-1.5 rounded border border-blue-100">IMEI: {i}</span>)}
+                    {t.extracted_shopify_orders?.map(o => <span key={o} className="text-[10px] text-purple-600 bg-purple-50 px-1.5 rounded border border-purple-100">SM: {o}</span>)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CollapsibleResultSection>
+      )}
+    </div>
+  );
+}
+
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function SearchPage() {
@@ -642,6 +727,13 @@ export default function SearchPage() {
     queryKey: ['search', debounced],
     queryFn: () => fetchSearch(debounced),
     enabled: canSearch,
+  });
+
+  const { data: summaryData, isFetching: isFetchingSummary } = useQuery({
+    queryKey: ['conversation-summary', ctxConvId],
+    queryFn: () => fetchConversationSummary(ctxConvId),
+    enabled: !!ctxConvId,
+    staleTime: 30 * 1000,
   });
 
   const cw = data?.chatwoot;
@@ -685,7 +777,7 @@ export default function SearchPage() {
       </div>
 
       {/* empty state */}
-      {!canSearch && !isFetching && (() => {
+      {!canSearch && !isFetching && !summaryData?.summary && (() => {
         const ctxButtons = [];
         if (ctxConvId) ctxButtons.push({ label: 'ID ticket', value: `cw ${ctxConvId}`, sub: `#${ctxConvId}` });
         if (ctxContact.name) ctxButtons.push({ label: 'Nombre', value: ctxContact.name, sub: ctxContact.name });
@@ -730,6 +822,16 @@ export default function SearchPage() {
           </div>
         );
       })()}
+
+      {/* Intelligent Summary Overlay */}
+      {!canSearch && isFetchingSummary && (
+        <div className="flex justify-center p-8">
+          <span className="inline-block h-6 w-6 rounded-full border-2 border-momo-400 border-t-transparent animate-spin" />
+        </div>
+      )}
+      {!canSearch && summaryData?.summary && (
+        <SectionIntelligentSummary summaryData={summaryData} />
+      )}
 
       {/* loading */}
       {canSearch && isFetching && (

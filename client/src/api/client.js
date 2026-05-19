@@ -48,3 +48,9 @@ export async function resolveChatwootConversation(conversationId) {
   if (!res.ok) throw new Error(data.error || 'No se pudo resolver la conversación');
   return data;
 }
+
+export async function fetchConversationSummary(conversationId) {
+  const res = await fetch(`/api/conversations/${conversationId}/summary`);
+  if (!res.ok) return null;
+  return res.json();
+}
