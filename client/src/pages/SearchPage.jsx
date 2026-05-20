@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSearch, resolveChatwootConversation, fetchContactPreview, fetchConversationSummary } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
@@ -708,6 +708,13 @@ export default function SearchPage() {
     staleTime: 3 * 60 * 1000,
     retry: false,
   });
+
+  // Autosearch cuando detecta un ticket
+  useEffect(() => {
+    if (ctxConvId) {
+      setInput(`cw ${ctxConvId}`);
+    }
+  }, [ctxConvId]);
 
   // Fusionar datos del appContext (si Chatwoot los manda) con los del backend
   const ctxContact = {
