@@ -17,7 +17,10 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors({ origin: true }));
-app.use(express.json());
+// Guarda el body crudo para verificar firma HMAC en el webhook de Chatwoot
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'soymomo-st-system' });
@@ -31,9 +34,23 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/conversations', conversationsRouter);
 
 // Sirve el cliente React buildado. En desarrollo no existe la carpeta, se ignora.
-app.use(express.static(PUBLIC_DIR));
+// Assets con hash (JS/CSS): cache largo. index.html: sin cache para ver cambios al instante.
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(join(PUBLIC_DIR, 'index.html'), (err) => {
     if (err) next(); // en dev la carpeta no existe, no es error
   });

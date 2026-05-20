@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'crypto';
 import { Router } from 'express';
 import { getSupabase } from '../lib/supabase.js';
 import { extractDeviceFactsFromText } from '../lib/extractDeviceFacts.js';
@@ -34,7 +35,28 @@ function extractGeminiSummary(customAttributes) {
   return null;
 }
 
+function verifySignature(secret, rawBody, header) {
+  if (!secret) return true; // sin secret configurado, aceptar todo (modo dev)
+  if (!header || !rawBody) return false;
+  // Chatwoot envía el digest como hex plano o como "sha256=<hex>"
+  const sig = header.replace(/^sha256=/i, '');
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
 webhookRouter.post('/chatwoot', async (req, res) => {
+  const secret = process.env.CHATWOOT_WEBHOOK_SECRET || '';
+  const sigHeader = req.headers['x-chatwoot-signature'] || '';
+
+  if (!verifySignature(secret, req.rawBody, sigHeader)) {
+    console.warn('Webhook rechazado: firma inválida');
+    return res.status(401).json({ error: 'Firma inválida' });
+  }
+
   const payload = req.body;
   if (!payload || !payload.event) {
     return res.status(400).json({ error: 'Payload inválido' });
