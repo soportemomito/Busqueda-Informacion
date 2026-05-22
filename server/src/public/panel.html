@@ -226,9 +226,10 @@ td { color: #333; }
     // Boletas Bsale
     if (data.bsale_documents && data.bsale_documents.length) {
       var rows = data.bsale_documents.map(function(d) {
-        var link = (typeof BSALE_URL !== 'undefined' && BSALE_URL && d.bsale_doc_id)
-          ? '<a class="btn-link" href="'+BSALE_URL+'/ventas/documentos/'+d.bsale_doc_id+'" target="_blank">Ver</a>'
-          : '';
+        var href = d.bsale_public_url
+          || ((typeof BSALE_URL !== 'undefined' && BSALE_URL && d.bsale_doc_id)
+              ? BSALE_URL+'/ventas/documentos/'+d.bsale_doc_id : '');
+        var link = href ? '<a class="btn-link" href="'+href+'" target="_blank">Ver</a>' : '';
         return '<tr><td>'+fmt(d.document_number)+'</td><td>'+fmt(d.document_type)+'</td><td>'+fmtMoney(d.total_amount)+'</td><td>'+link+'</td></tr>';
       }).join('');
       html += sec('Boletas Bsale <span class="sec-count">('+data.bsale_documents.length+')</span>','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');

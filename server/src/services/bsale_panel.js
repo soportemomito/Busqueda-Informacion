@@ -26,6 +26,7 @@ function mapDoc(doc, contactEmail) {
     contact_email: contactEmail || client.email || null,
     total_amount: doc.totalAmount ?? null,
     issued_at: doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString() : null,
+    bsale_public_url: doc.urlPublicView || null,
     raw_data: doc,
     fetched_at: new Date().toISOString(),
   };

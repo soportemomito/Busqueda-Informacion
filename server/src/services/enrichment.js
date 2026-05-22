@@ -127,9 +127,9 @@ class EnrichmentContext {
     if (this.chatwootContact) {
       contact = {
         chatwoot_contact_id: this.chatwootContact.chatwoot_contact_id,
-        name:  this.chatwootContact.name  || [...this.names][0]  || null,
-        email: this.chatwootContact.email || [...this.emails][0] || null,
-        phone: this.chatwootContact.phone_whatsapp || [...this.phones][0] || null,
+        name:  this.chatwootContact.name  || null,
+        email: this.chatwootContact.email || this.contactEmail || null,
+        phone: this.chatwootContact.phone_whatsapp || this.contactPhone || null,
       };
     }
     return {
@@ -162,16 +162,12 @@ function _add(set, value) {
 
 async function fromShopify(ctx) {
   ctx.markUsedShopify();
-  // Prefer contact's primary email/phone over pool (avoids using emails from messages)
-  const email = ctx.contactEmail || [...ctx.emails][0] || null;
-  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
+  const email = ctx.contactEmail || null;
+  const phone = ctx.contactPhone || null;
+  if (!email && !phone) return; // never search without a trusted contact identifier
   const orders = await fetchShopifyForContact(email, phone);
   for (const o of orders) {
     if (ctx.shopifyOrders.has(o.shopify_order_id)) continue;
-    // Only keep orders that actually match a known identifier (exact match)
-    const emailMatch = !email || (o.contact_email || '').toLowerCase() === email.toLowerCase();
-    const phoneMatch = !phone || (o.contact_phone || '').replace(/\D/g,'').endsWith(phone.replace(/\D/g,'').slice(-8));
-    if (!emailMatch && !phoneMatch) continue;
     ctx.shopifyOrders.set(o.shopify_order_id, o);
     ctx.addEmail(o.contact_email);
     ctx.addPhone(o.contact_phone);
@@ -181,10 +177,9 @@ async function fromShopify(ctx) {
 
 async function fromBsale(ctx) {
   ctx.markUsedBsale();
-  // Prefer contact's primary email over pool
-  const email = ctx.contactEmail || [...ctx.emails][0] || null;
-  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
-  const name  = [...ctx.names][0]  || null;
+  const email = ctx.contactEmail || null;
+  const phone = ctx.contactPhone || null;
+  const name  = ctx.chatwootContact?.name || [...ctx.names][0] || null;
   const docs = await fetchBsaleForContact(email, phone, name);
   for (const d of docs) {
     if (ctx.bsaleDocs.has(d.document_number)) continue;
