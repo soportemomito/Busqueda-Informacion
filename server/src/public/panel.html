@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SoyMomo Panel</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; background: #f0f0f4; color: #222; max-width: 340px; min-height: 100vh; }
+
+/* Header */
+.header { background: #1a1a2e; color: #fff; padding: 9px 12px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+.header h1 { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; }
+.btn-icon { background: rgba(255,255,255,0.12); border: none; color: #fff; padding: 3px 9px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: background 0.15s; }
+.btn-icon:hover { background: rgba(255,255,255,0.22); }
+
+/* Manual search */
+.manual-bar { background: #fff; border-bottom: 1px solid #e0e0e8; padding: 7px 10px; }
+.btn-manual { background: none; border: 1px solid #1a1a2e; color: #1a1a2e; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.manual-row { display: none; margin-top: 6px; gap: 5px; }
+.manual-row.open { display: flex; }
+.manual-row input { flex: 1; border: 1px solid #ccc; border-radius: 4px; padding: 4px 7px; font-size: 12px; outline: none; }
+.manual-row input:focus { border-color: #1a1a2e; }
+.btn-search { background: #1a1a2e; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+/* Skeleton */
+.skeleton { padding: 10px 10px 0; }
+.sk { height: 10px; background: #ddd; border-radius: 3px; margin: 7px 0; animation: pulse 1.4s ease-in-out infinite; }
+.sk.w70 { width: 70%; } .sk.w50 { width: 50%; } .sk.w85 { width: 85%; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+/* Spinner */
+.spinner-wrap { display: flex; justify-content: center; padding: 28px; }
+.spinner { width: 22px; height: 22px; border: 3px solid #ddd; border-top-color: #1a1a2e; border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Duplicate alert */
+.dup-banner { margin: 8px; background: #fff0f0; border: 1px solid #f5b8b8; border-radius: 6px; padding: 9px 10px; }
+.dup-banner h3 { color: #a10000; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+.dup-pair { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 5px 0; font-size: 11px; color: #444; }
+.dup-info { line-height: 1.5; }
+.btn-merge { background: #cc2222; color: #fff; border: none; padding: 3px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.btn-merge:hover { background: #aa1111; }
+.btn-merge:disabled { background: #999; cursor: default; }
+
+/* Section */
+.section { background: #fff; margin: 8px; border-radius: 6px; border: 1px solid #e0e0e8; overflow: hidden; }
+.sec-header { background: #f4f4f8; padding: 5px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #666; }
+.sec-body { padding: 0; }
+
+/* Cliente card */
+.contact-card { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.c-row { display: flex; gap: 5px; align-items: baseline; }
+.c-label { color: #999; font-size: 10px; min-width: 52px; }
+.c-val { font-size: 12px; color: #222; word-break: break-all; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid #f0f0f4; font-size: 11px; }
+th { font-weight: 600; color: #888; font-size: 10px; }
+tr:last-child td { border-bottom: none; }
+td { color: #333; }
+
+/* No-data */
+.no-data { padding: 8px 10px; font-size: 11px; color: #aaa; font-style: italic; }
+
+/* Badges */
+.badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.b-open { background: #d4edda; color: #155724; }
+.b-resolved { background: #e9e9e9; color: #555; }
+.b-pending { background: #fff3cd; color: #7d5a00; }
+.b-paid { background: #d4edda; color: #155724; }
+.b-pending_payment { background: #fde8d0; color: #7d3e00; }
+.b-refunded { background: #f8d7da; color: #721c24; }
+.b-default { background: #e2e3e5; color: #444; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>SoyMomo Panel</h1>
+  <button class="btn-icon" onclick="refresh()" title="Actualizar">↻ Actualizar</button>
+</div>
+
+<div class="manual-bar">
+  <button class="btn-manual" onclick="toggleManual()">Buscar manualmente</button>
+  <div class="manual-row" id="manualRow">
+    <input type="text" id="manualInput" placeholder="Email, teléfono o nombre…" onkeydown="if(event.key==='Enter')doManualSearch()">
+    <button class="btn-search" onclick="doManualSearch()">Buscar</button>
+  </div>
+</div>
+
+<div id="app">
+  <div class="skeleton">
+    <div class="sk w85"></div><div class="sk w50"></div><div class="sk w70"></div>
+    <div class="sk w85"></div><div class="sk w50"></div>
+  </div>
+</div>
+
+<script>
+  var _params = {};
+  var _loading = false;
+
+  function toggleManual() {
+    var row = document.getElementById('manualRow');
+    var open = row.classList.toggle('open');
+    if (open) document.getElementById('manualInput').focus();
+  }
+
+  function doManualSearch() {
+    var q = (document.getElementById('manualInput').value || '').trim();
+    if (!q) return;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) _params = { email: q };
+    else if (/^\+?[\d\s\-]{7,}$/.test(q)) _params = { phone: q };
+    else _params = { name: q };
+    load();
+  }
+
+  function refresh() {
+    if (Object.keys(_params).length) load();
+  }
+
+  async function load() {
+    if (_loading) return;
+    _loading = true;
+    document.getElementById('app').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+    try {
+      var qs = new URLSearchParams(_params).toString();
+      var r = await fetch('/search?' + qs);
+      var data = await r.json();
+      render(data);
+    } catch (e) {
+      document.getElementById('app').innerHTML = '<div class="section"><div class="no-data">Error al cargar datos.</div></div>';
+    } finally {
+      _loading = false;
+    }
+  }
+
+  function badge(val) {
+    var map = { open:'b-open', resolved:'b-resolved', pending:'b-pending',
+                paid:'b-paid', pending_payment:'b-pending_payment', refunded:'b-refunded' };
+    var cls = map[(val||'').toLowerCase()] || 'b-default';
+    return '<span class="badge '+cls+'">'+(val||'—')+'</span>';
+  }
+
+  function fmt(v) { return v != null && v !== '' ? v : '—'; }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'2-digit'}); } catch { return iso; }
+  }
+
+  function fmtMoney(v) {
+    if (v == null) return '—';
+    try { return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',minimumFractionDigits:0}).format(v); } catch { return v; }
+  }
+
+  function sec(title, inner) {
+    return '<div class="section"><div class="sec-header">'+title+'</div><div class="sec-body">'+inner+'</div></div>';
+  }
+
+  function noData() { return '<div class="no-data">No encontrado</div>'; }
+
+  function render(data) {
+    var html = '';
+
+    // Duplicates banner
+    if (data.duplicate_signals && data.duplicate_signals.length) {
+      html += '<div class="dup-banner"><h3>⚠ Duplicados detectados ('+data.duplicate_signals.length+')</h3>';
+      data.duplicate_signals.forEach(function(s) {
+        html += '<div class="dup-pair"><div class="dup-info"><strong>'+fmt(s.signal_type)+':</strong> '+fmt(s.signal_value)+'<br>Conv #'+s.conversation_id_a+' ↔ #'+s.conversation_id_b+'</div>'
+          +'<button class="btn-merge" onclick="mergePair('+s.conversation_id_a+','+s.conversation_id_b+',this)">Fusionar</button></div>';
+      });
+      html += '</div>';
+    }
+
+    // Cliente
+    if (data.contact) {
+      var c = data.contact;
+      html += sec('Cliente','<div class="contact-card">'
+        +'<div class="c-row"><span class="c-label">Nombre</span><span class="c-val">'+fmt(c.name)+'</span></div>'
+        +'<div class="c-row"><span class="c-label">Email</span><span class="c-val">'+fmt(c.email)+'</span></div>'
+        +'<div class="c-row"><span class="c-label">Teléfono</span><span class="c-val">'+fmt(c.phone)+'</span></div>'
+        +'</div>');
+    } else {
+      html += sec('Cliente', noData());
+    }
+
+    // Dispositivos
+    if (data.devices && data.devices.length) {
+      var rows = data.devices.map(function(d) {
+        return '<tr><td>'+fmt(d.imei)+'</td><td>'+fmt(d.sim_id)+'</td><td>'+fmt(d.brand)+' '+fmt(d.model)+'</td></tr>';
+      }).join('');
+      html += sec('Dispositivos','<table><thead><tr><th>IMEI</th><th>SIM ID</th><th>Equipo</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html += sec('Dispositivos', noData());
+    }
+
+    // Conversaciones
+    if (data.conversations && data.conversations.length) {
+      var rows = data.conversations.map(function(c) {
+        return '<tr><td>'+fmt(c.channel_type)+'</td><td>'+badge(c.status)+'</td><td>'+fmtDate(c.chatwoot_created_at)+'</td><td>'+fmt(c.assignee_name)+'</td></tr>';
+      }).join('');
+      html += sec('Conversaciones','<table><thead><tr><th>Canal</th><th>Estado</th><th>Fecha</th><th>Asignado</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html += sec('Conversaciones', noData());
+    }
+
+    // Boletas Bsale
+    if (data.bsale_documents && data.bsale_documents.length) {
+      var rows = data.bsale_documents.map(function(d) {
+        return '<tr><td>'+fmt(d.document_number)+'</td><td>'+fmt(d.document_type)+'</td><td>'+fmtMoney(d.total_amount)+'</td><td>'+fmtDate(d.issued_at)+'</td></tr>';
+      }).join('');
+      html += sec('Boletas Bsale','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html += sec('Boletas Bsale', noData());
+    }
+
+    // Pedidos Shopify
+    if (data.shopify_orders && data.shopify_orders.length) {
+      var rows = data.shopify_orders.map(function(o) {
+        return '<tr><td>'+fmt(o.order_name)+'</td><td>'+badge(o.status)+'</td><td>'+badge(o.financial_status)+'</td><td>'+fmtMoney(o.total_price)+'</td></tr>';
+      }).join('');
+      html += sec('Pedidos Shopify','<table><thead><tr><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html += sec('Pedidos Shopify', noData());
+    }
+
+    // Órdenes de Servicio
+    if (data.service_orders && data.service_orders.length) {
+      var rows = data.service_orders.map(function(o) {
+        return '<tr><td>'+fmt(o.order_number)+'</td><td>'+badge(o.status)+'</td><td>'+fmt(o.technician)+'</td><td>'+fmtDate(o.received_at)+'</td></tr>';
+      }).join('');
+      html += sec('Órdenes de Servicio','<table><thead><tr><th>N°</th><th>Estado</th><th>Técnico</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+    } else {
+      html += sec('Órdenes de Servicio', noData());
+    }
+
+    document.getElementById('app').innerHTML = html;
+  }
+
+  async function mergePair(convA, convB, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Fusionando…';
+    try {
+      var r = await fetch('/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base_conversation_id: convA, mergee_conversation_id: convB, triggered_by: 'panel' })
+      });
+      var data = await r.json();
+      if (data.success) {
+        btn.textContent = '✓ Fusionado';
+        setTimeout(load, 1200);
+      } else {
+        btn.textContent = 'Error';
+        btn.disabled = false;
+      }
+    } catch {
+      btn.textContent = 'Error';
+      btn.disabled = false;
+    }
+  }
+
+  // Chatwoot postMessage integration
+  window.addEventListener('message', function(event) {
+    try {
+      var raw = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+      var data = JSON.parse(raw);
+      if (!data) return;
+
+      var sender = (data.meta && data.meta.sender) ? data.meta.sender : {};
+      var p = {};
+      if (sender.email) p.email = sender.email;
+      if (sender.phone_number) p.phone = sender.phone_number;
+      if (sender.name && !p.email && !p.phone) p.name = sender.name;
+      if (data.id) p.conversation_id = data.id;
+
+      if (Object.keys(p).length) { _params = p; load(); }
+    } catch (_) {}
+  });
+</script>
+</body>
+</html>

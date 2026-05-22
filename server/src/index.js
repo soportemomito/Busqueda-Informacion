@@ -9,6 +9,12 @@ import { setupRouter } from './routes/setup.js';
 import { chatwootActionsRouter } from './routes/chatwootActions.js';
 import { webhookRouter } from './routes/webhook.js';
 import { conversationsRouter } from './routes/conversations.js';
+// Panel routes (spec)
+import { healthRouter } from './routes/health.js';
+import { panelRouter } from './routes/panel.js';
+import { panelWebhookRouter } from './routes/webhook_panel.js';
+import { panelSearchRouter } from './routes/search_panel.js';
+import { mergeRouter } from './routes/merge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '../../client/dist');
@@ -25,6 +31,13 @@ app.use(express.json({
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'soymomo-st-system' });
 });
+
+// Panel (spec) routes — registered before the React catch-all
+app.use('/health', healthRouter);
+app.use('/panel', panelRouter);
+app.use('/webhook', panelWebhookRouter);
+app.use('/search', panelSearchRouter);
+app.use('/merge', mergeRouter);
 
 app.use('/api/setup', setupRouter);
 app.use('/api/search', searchRouter);
