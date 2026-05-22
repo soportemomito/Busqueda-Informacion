@@ -26,6 +26,11 @@ class EnrichmentContext {
     this.contactEmail = null;
     this.contactPhone = null;
 
+    // Trusted emails: from Chatwoot contact record OR typed literally by the customer
+    // in an incoming message. API-discovered emails do NOT go here.
+    // Shopify and Bsale contact searches only fire when this set has new values.
+    this.directEmails = new Set();
+
     // Identifier pools
     this.emails   = new Set();
     this.phones   = new Set();
@@ -59,12 +64,26 @@ class EnrichmentContext {
 
   // ── Adders (return true when the value is new) ──────────────────────────────
 
-  addEmail(e) {
-    if (!e) return false;
+  _normalizeEmail(e) {
+    if (!e) return null;
     const n = String(e).trim().toLowerCase();
-    if (!n.includes('@')) return false;
-    if (INTERNAL_DOMAINS.has(n.split('@')[1] || '')) return false;
+    if (!n.includes('@')) return null;
+    if (INTERNAL_DOMAINS.has(n.split('@')[1] || '')) return null;
+    return n;
+  }
+
+  addEmail(e) {
+    const n = this._normalizeEmail(e);
+    if (!n) return false;
     return _add(this.emails, n);
+  }
+
+  /** Like addEmail but also marks the email as "trusted" (from contact or message text). */
+  addDirectEmail(e) {
+    const n = this._normalizeEmail(e);
+    if (!n) return false;
+    _add(this.emails, n);
+    return _add(this.directEmails, n);
   }
   addPhone(p) {
     if (!p) return false;
@@ -94,7 +113,9 @@ class EnrichmentContext {
       if (e.entity_type === 'boleta')        this.addBoleta(e.normalized_value);
       if (e.entity_type === 'service_order') this.addServiceOrder(e.normalized_value);
     }
-    for (const m of (text.match(EMAIL_RE) || [])) this.addEmail(m);
+    // Emails from message text are exact and trusted — use addDirectEmail.
+    // Phones from messages are NOT used for Shopify/Bsale (too unreliable).
+    for (const m of (text.match(EMAIL_RE) || [])) this.addDirectEmail(m);
     for (const m of (text.match(PHONE_RE) || [])) this.addPhone(m);
   }
 
@@ -105,14 +126,16 @@ class EnrichmentContext {
     return false;
   }
 
-  hasNewForBsale()    { return this._hasNew(this.emails, 'e:', this._usedBsale) || this._hasNew(this.phones, 'p:', this._usedBsale) || this._hasNew(this.names, 'n:', this._usedBsale); }
-  hasNewForShopify()  { return this._hasNew(this.emails, 'e:', this._usedShopify) || this._hasNew(this.phones, 'p:', this._usedShopify); }
+  // Shopify and Bsale only trigger on exact trusted emails (directEmails).
+  // Chatwoot text-search still uses the full pools.
+  hasNewForShopify()  { return this._hasNew(this.directEmails, 'e:', this._usedShopify); }
+  hasNewForBsale()    { return this._hasNew(this.directEmails, 'e:', this._usedBsale); }
   hasNewForChatwoot() { return this._hasNew(this.emails, 'e:', this._usedChatwoot) || this._hasNew(this.phones, 'p:', this._usedChatwoot) || this._hasNew(this.names, 'n:', this._usedChatwoot); }
 
   _markUsed(pool, prefix, used) { for (const v of pool) used.add(prefix + v); }
 
-  markUsedBsale()    { this._markUsed(this.emails, 'e:', this._usedBsale); this._markUsed(this.phones, 'p:', this._usedBsale); this._markUsed(this.names, 'n:', this._usedBsale); }
-  markUsedShopify()  { this._markUsed(this.emails, 'e:', this._usedShopify); this._markUsed(this.phones, 'p:', this._usedShopify); }
+  markUsedShopify()  { this._markUsed(this.directEmails, 'e:', this._usedShopify); }
+  markUsedBsale()    { this._markUsed(this.directEmails, 'e:', this._usedBsale); }
   markUsedChatwoot() { this._markUsed(this.emails, 'e:', this._usedChatwoot); this._markUsed(this.phones, 'p:', this._usedChatwoot); this._markUsed(this.names, 'n:', this._usedChatwoot); }
 
   newDbItems(pool, used) { return [...pool].filter(v => !used.has(v)); }
@@ -175,32 +198,32 @@ function _add(set, value) {
 // ─── Source enrichers ─────────────────────────────────────────────────────────
 
 async function fromShopify(ctx) {
+  // Only search by exact trusted email — never by phone or discovered emails.
+  // SM order numbers trigger fromShopifyByOrderNames separately (also exact).
+  const email = ctx.contactEmail || [...ctx.directEmails][0] || null;
+  if (!email) return;
   ctx.markUsedShopify();
-  // contactEmail/Phone first (Chatwoot contact), then fall back to what
-  // the customer typed in the conversation
-  const email = ctx.contactEmail || [...ctx.emails][0] || null;
-  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
-  if (!email && !phone) return;
-  const orders = await fetchShopifyForContact(email, phone);
+  const orders = await fetchShopifyForContact(email, null);
   for (const o of orders) {
     if (ctx.shopifyOrders.has(o.shopify_order_id)) continue;
     ctx.shopifyOrders.set(o.shopify_order_id, o);
-    ctx.addEmail(o.contact_email);
+    ctx.addEmail(o.contact_email);   // discovered — goes to emails, not directEmails
     ctx.addPhone(o.contact_phone);
     ctx.addName(o.contact_name);
   }
 }
 
 async function fromBsale(ctx) {
+  // Only search by exact trusted email — never by phone or name fallback.
+  // Boleta numbers trigger fromBsaleByDocNumbers separately (also exact).
+  const email = ctx.contactEmail || [...ctx.directEmails][0] || null;
+  if (!email) return;
   ctx.markUsedBsale();
-  const email = ctx.contactEmail || [...ctx.emails][0] || null;
-  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
-  const name  = ctx.chatwootContact?.name || [...ctx.names][0] || null;
-  const docs = await fetchBsaleForContact(email, phone, name);
+  const docs = await fetchBsaleForContact(email, null, null);
   for (const d of docs) {
     if (ctx.bsaleDocs.has(d.document_number)) continue;
     ctx.bsaleDocs.set(d.document_number, d);
-    ctx.addEmail(d.contact_email);
+    ctx.addEmail(d.contact_email);   // discovered — goes to emails, not directEmails
     ctx.addName(d.contact_name);
   }
 }
@@ -213,9 +236,11 @@ async function fromChatwoot(ctx) {
   const name  = [...ctx.names][0]  || null;
   const result = await searchContactInChatwoot({ email, phone, name });
   if (!result) return;
-  ctx.chatwootContact      = result.contact;
+  ctx.chatwootContact       = result.contact;
   ctx.chatwootConversations = result.conversations;
-  ctx.addEmail(result.contact.email);
+  // Contact email found via Chatwoot is trusted for Shopify/Bsale search
+  if (!ctx.contactEmail && result.contact.email) ctx.contactEmail = result.contact.email;
+  ctx.addDirectEmail(result.contact.email);
   ctx.addPhone(result.contact.phone_whatsapp);
   ctx.addName(result.contact.name);
 }
@@ -357,7 +382,7 @@ export async function runEnrichment(seed, db) {
   const ctx = new EnrichmentContext();
 
   // Seed explicit identifiers (from manual search or query params)
-  if (seed.email)         { ctx.contactEmail = seed.email; ctx.addEmail(seed.email); }
+  if (seed.email)         { ctx.contactEmail = seed.email; ctx.addDirectEmail(seed.email); }
   if (seed.phone)         { ctx.contactPhone = seed.phone; ctx.addPhone(seed.phone); }
   if (seed.name)          ctx.addName(seed.name);
   if (seed.imei)          ctx.addImei(seed.imei);
@@ -380,7 +405,7 @@ export async function runEnrichment(seed, db) {
     // These are the trusted primary identifiers for this contact
     if (seed.cwContact.email)          ctx.contactEmail = seed.cwContact.email;
     if (seed.cwContact.phone_whatsapp) ctx.contactPhone = seed.cwContact.phone_whatsapp;
-    ctx.addEmail(seed.cwContact.email);
+    ctx.addDirectEmail(seed.cwContact.email);   // trusted — goes to both emails + directEmails
     ctx.addPhone(seed.cwContact.phone_whatsapp);
     ctx.addName(seed.cwContact.name);
   }
