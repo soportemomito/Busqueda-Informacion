@@ -345,27 +345,21 @@ async function runRound(ctx, db) {
   if (ctx.hasNewForChatwoot()) { tasks.push(fromChatwoot(ctx).catch(() => {})); }
 
   const newShopifyOrders  = ctx.newDbItems(ctx.shopifyOrderNames, ctx._usedDbShopify);
-  const newBoletas        = ctx.newDbItems(ctx.boletaNumbers, ctx._usedDbBsale);
   const newImeis          = ctx.newDbItems(ctx.imeis, ctx._usedDbDevices);
   const newServiceOrders  = ctx.newDbItems(ctx.serviceOrderNumbers, ctx._usedDbService);
 
   newShopifyOrders.forEach(v => ctx._usedDbShopify.add(v));
-  newBoletas.forEach(v => ctx._usedDbBsale.add(v));
   newImeis.forEach(v => ctx._usedDbDevices.add(v));
   newServiceOrders.forEach(v => ctx._usedDbService.add(v));
 
   if (newShopifyOrders.length) tasks.push(fromDbShopify(ctx, db, newShopifyOrders).catch(() => {}));
-  if (newBoletas.length)       tasks.push(fromDbBsale(ctx, db, newBoletas).catch(() => {}));
   if (newImeis.length)         tasks.push(fromDbDevices(ctx, db, newImeis).catch(() => {}));
   if (newServiceOrders.length) tasks.push(fromDbServiceOrders(ctx, db, newServiceOrders).catch(() => {}));
 
-  // API lookups for SM order numbers and boleta numbers from messages
+  // SM order numbers → direct Shopify API lookup (exact match)
   const newApiShopifyOrders = ctx.newDbItems(ctx.shopifyOrderNames, ctx._usedApiShopifyOrders);
-  const newApiBoletas       = ctx.newDbItems(ctx.boletaNumbers, ctx._usedApiBsaleDocs);
   newApiShopifyOrders.forEach(v => ctx._usedApiShopifyOrders.add(v));
-  newApiBoletas.forEach(v => ctx._usedApiBsaleDocs.add(v));
   if (newApiShopifyOrders.length) tasks.push(fromShopifyByOrderNames(ctx, newApiShopifyOrders).catch(() => {}));
-  if (newApiBoletas.length)       tasks.push(fromBsaleByDocNumbers(ctx, newApiBoletas).catch(() => {}));
 
   // Service orders by contact email (Google Sheets sync data)
   const newEmailsForST = ctx.newDbItems(ctx.emails, ctx._usedDbServiceByEmail);
