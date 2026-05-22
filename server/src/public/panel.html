@@ -88,7 +88,8 @@ td { color: #333; }
 
 <div class="header">
   <h1>SoyMomo Panel</h1>
-  <button class="btn-icon" onclick="refresh()" title="Actualizar">↻ Actualizar</button>
+  <button class="btn-icon" onclick="refresh()" title="Actualizar">↻</button>
+  <button class="btn-icon" id="btnSync" onclick="syncST()" title="Sincronizar órdenes de ST desde Google Sheets">⟳ ST</button>
 </div>
 
 <div class="status-bar" id="statusBar">Esperando conversación de Chatwoot…</div>
@@ -253,9 +254,12 @@ td { color: #333; }
     // Órdenes de Servicio
     if (data.service_orders && data.service_orders.length) {
       var rows = data.service_orders.map(function(o) {
-        return '<tr><td>'+fmt(o.order_number)+'</td><td>'+badge(o.status)+'</td><td>'+fmt(o.technician)+'</td><td>'+fmtDate(o.received_at)+'</td></tr>';
+        var informe = o.report_url
+          ? '<a class="btn-link" href="'+o.report_url+'" target="_blank">Informe</a>'
+          : '';
+        return '<tr><td>'+fmt(o.order_number)+'</td><td>'+badge(o.status)+'</td><td>'+fmtDate(o.received_at)+'</td><td>'+informe+'</td></tr>';
       }).join('');
-      html += sec('Órdenes de Servicio <span class="sec-count">('+data.service_orders.length+')</span>','<table><thead><tr><th>N°</th><th>Estado</th><th>Técnico</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Órdenes de Servicio <span class="sec-count">('+data.service_orders.length+')</span>','<table><thead><tr><th>N°</th><th>Estado</th><th>Fecha</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Órdenes de Servicio', noData());
     }
@@ -283,6 +287,22 @@ td { color: #333; }
     } catch {
       btn.textContent = 'Error';
       btn.disabled = false;
+    }
+  }
+
+  async function syncST() {
+    var btn = document.getElementById('btnSync');
+    btn.textContent = '⟳ Sync…';
+    btn.disabled = true;
+    try {
+      var r = await fetch('/sync/service-orders', { method: 'POST' });
+      var d = await r.json();
+      btn.textContent = d.success ? ('✓ ' + d.synced + ' OS') : '✗ Error';
+      setTimeout(function() { btn.textContent = '⟳ ST'; btn.disabled = false; }, 3000);
+      if (d.success && d.synced > 0 && Object.keys(_params).length) load();
+    } catch {
+      btn.textContent = '✗ Error';
+      setTimeout(function() { btn.textContent = '⟳ ST'; btn.disabled = false; }, 3000);
     }
   }
 

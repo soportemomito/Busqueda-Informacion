@@ -52,8 +52,9 @@ class EnrichmentContext {
     this._usedDbBsale        = new Set();
     this._usedDbDevices      = new Set();
     this._usedDbService      = new Set();
-    this._usedApiShopifyOrders = new Set(); // SM numbers searched via API
-    this._usedApiBsaleDocs     = new Set(); // boleta numbers searched via API
+    this._usedApiShopifyOrders  = new Set(); // SM numbers searched via API
+    this._usedApiBsaleDocs      = new Set(); // boleta numbers searched via API
+    this._usedDbServiceByEmail  = new Set(); // emails searched in service_orders
   }
 
   // ── Adders (return true when the value is new) ──────────────────────────────
@@ -239,18 +240,29 @@ async function fromDbDevices(ctx, db, imeis) {
   }
 }
 
+const SERVICE_ORDERS_SELECT = 'id, order_number, status, technician, received_at, device_id, contact_name, contact_email, report_url';
+
 async function fromDbServiceOrders(ctx, db, orderNumbers) {
   const { data } = await db.from('service_orders')
-    .select('id, order_number, status, technician, received_at, device_id')
+    .select(SERVICE_ORDERS_SELECT)
     .in('order_number', orderNumbers);
   for (const o of data || []) {
     if (ctx.serviceOrders.has(o.order_number)) continue;
     ctx.serviceOrders.set(o.order_number, o);
-    // If linked to a device, fetch its IMEI
     if (o.device_id) {
       const { data: dev } = await db.from('devices').select('imei').eq('id', o.device_id).maybeSingle();
       if (dev?.imei) ctx.addImei(dev.imei);
     }
+  }
+}
+
+async function fromDbServiceOrdersByEmail(ctx, db, emails) {
+  const { data } = await db.from('service_orders')
+    .select(SERVICE_ORDERS_SELECT)
+    .in('contact_email', emails);
+  for (const o of data || []) {
+    if (ctx.serviceOrders.has(o.order_number)) continue;
+    ctx.serviceOrders.set(o.order_number, o);
   }
 }
 
@@ -311,6 +323,11 @@ async function runRound(ctx, db) {
   newApiBoletas.forEach(v => ctx._usedApiBsaleDocs.add(v));
   if (newApiShopifyOrders.length) tasks.push(fromShopifyByOrderNames(ctx, newApiShopifyOrders).catch(() => {}));
   if (newApiBoletas.length)       tasks.push(fromBsaleByDocNumbers(ctx, newApiBoletas).catch(() => {}));
+
+  // Service orders by contact email (Google Sheets sync data)
+  const newEmailsForST = ctx.newDbItems(ctx.emails, ctx._usedDbServiceByEmail);
+  newEmailsForST.forEach(v => ctx._usedDbServiceByEmail.add(v));
+  if (newEmailsForST.length) tasks.push(fromDbServiceOrdersByEmail(ctx, db, newEmailsForST).catch(() => {}));
 
   if (!tasks.length) return false;
   await Promise.all(tasks);

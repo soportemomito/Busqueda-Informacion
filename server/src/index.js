@@ -15,6 +15,7 @@ import { panelRouter } from './routes/panel.js';
 import { panelWebhookRouter } from './routes/webhook_panel.js';
 import { panelSearchRouter } from './routes/search_panel.js';
 import { mergeRouter } from './routes/merge.js';
+import { syncRouter } from './routes/sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '../../client/dist');
@@ -38,6 +39,7 @@ app.use('/panel', panelRouter);
 app.use('/webhook', panelWebhookRouter);
 app.use('/search', panelSearchRouter);
 app.use('/merge', mergeRouter);
+app.use('/sync', syncRouter);
 
 app.use('/api/setup', setupRouter);
 app.use('/api/search', searchRouter);
