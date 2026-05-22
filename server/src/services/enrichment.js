@@ -23,6 +23,7 @@ class EnrichmentContext {
   constructor() {
     // Primary identifiers — from the contact itself (Chatwoot or explicit seed)
     // Used first for Shopify/Bsale searches to avoid contamination from message text
+    this.contactName  = null;
     this.contactEmail = null;
     this.contactPhone = null;
 
@@ -160,7 +161,7 @@ class EnrichmentContext {
     if (this.chatwootContact) {
       contact = {
         chatwoot_contact_id: this.chatwootContact.chatwoot_contact_id,
-        name:  this.chatwootContact.name  || null,
+        name:  this.chatwootContact.name  || this.contactName || null,
         email: this.chatwootContact.email || bestEmail(),
         phone: this.chatwootContact.phone_whatsapp || this.contactPhone || null,
       };
@@ -169,7 +170,7 @@ class EnrichmentContext {
       const firstOrder = [...this.shopifyOrders.values()][0];
       const firstDoc   = [...this.bsaleDocs.values()][0];
       const firstST    = [...this.serviceOrders.values()][0];
-      const name  = firstOrder?.contact_name || firstDoc?.contact_name || firstST?.contact_name || null;
+      const name  = this.contactName || firstOrder?.contact_name || firstDoc?.contact_name || firstST?.contact_name || null;
       const email = bestEmail();
       const phone = this.contactPhone || firstOrder?.contact_phone || null;
       if (name || email || phone) {
@@ -383,9 +384,9 @@ export async function runEnrichment(seed, db) {
   const ctx = new EnrichmentContext();
 
   // Seed explicit identifiers (from manual search or query params)
+  if (seed.name)          { ctx.contactName = seed.name; ctx.addName(seed.name); }
   if (seed.email)         { ctx.contactEmail = seed.email; ctx.addDirectEmail(seed.email); }
   if (seed.phone)         { ctx.contactPhone = seed.phone; ctx.addPhone(seed.phone); }
-  if (seed.name)          ctx.addName(seed.name);
   if (seed.imei)          ctx.addImei(seed.imei);
   if (seed.sim_id)        ctx.addSimId(seed.sim_id);
   if (seed.shopify_order) ctx.addShopifyOrder(seed.shopify_order);
@@ -407,9 +408,10 @@ export async function runEnrichment(seed, db) {
     ctx.chatwootConversations = seed.cwConversations || [];
     ctx.markUsedChatwoot(); // don't search Chatwoot again by text
     // These are the trusted primary identifiers for this contact
+    if (seed.cwContact.name)           ctx.contactName  = seed.cwContact.name;
     if (seed.cwContact.email)          ctx.contactEmail = seed.cwContact.email;
     if (seed.cwContact.phone_whatsapp) ctx.contactPhone = seed.cwContact.phone_whatsapp;
-    ctx.addDirectEmail(seed.cwContact.email);   // trusted — goes to both emails + directEmails
+    ctx.addDirectEmail(seed.cwContact.email);
     ctx.addPhone(seed.cwContact.phone_whatsapp);
     ctx.addName(seed.cwContact.name);
   }

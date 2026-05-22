@@ -494,9 +494,9 @@ tbody tr:hover { background: #f7f8fc; }
 
       var p = {};
       if (convId)              p.conversation_id = convId;
+      if (sender.name)         p.name = sender.name;
       if (sender.email)        p.email = sender.email;
       if (sender.phone_number) p.phone = sender.phone_number;
-      if (sender.name && !p.email && !p.phone) p.name = sender.name;
 
       if (!Object.keys(p).length) return;
 
