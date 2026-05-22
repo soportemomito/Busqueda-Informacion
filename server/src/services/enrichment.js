@@ -162,9 +162,11 @@ function _add(set, value) {
 
 async function fromShopify(ctx) {
   ctx.markUsedShopify();
-  const email = ctx.contactEmail || null;
-  const phone = ctx.contactPhone || null;
-  if (!email && !phone) return; // never search without a trusted contact identifier
+  // contactEmail/Phone first (Chatwoot contact), then fall back to what
+  // the customer typed in the conversation
+  const email = ctx.contactEmail || [...ctx.emails][0] || null;
+  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
+  if (!email && !phone) return;
   const orders = await fetchShopifyForContact(email, phone);
   for (const o of orders) {
     if (ctx.shopifyOrders.has(o.shopify_order_id)) continue;
@@ -177,8 +179,8 @@ async function fromShopify(ctx) {
 
 async function fromBsale(ctx) {
   ctx.markUsedBsale();
-  const email = ctx.contactEmail || null;
-  const phone = ctx.contactPhone || null;
+  const email = ctx.contactEmail || [...ctx.emails][0] || null;
+  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
   const name  = ctx.chatwootContact?.name || [...ctx.names][0] || null;
   const docs = await fetchBsaleForContact(email, phone, name);
   for (const d of docs) {
