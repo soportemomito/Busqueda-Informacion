@@ -64,3 +64,15 @@ export async function fetchShopifyForContact(email, phone) {
 
   return results;
 }
+
+/**
+ * Fetch a single Shopify order by its name (e.g. "SM1234").
+ */
+export async function fetchShopifyByOrderName(orderName) {
+  const http = makeHttp();
+  if (!http) return [];
+  try {
+    const { data } = await http.get('/orders.json', { params: { name: orderName, status: 'any', limit: 5 } });
+    return (data?.orders || []).map(mapOrder);
+  } catch { return []; }
+}

@@ -91,3 +91,15 @@ export async function fetchBsaleForContact(email, phone, name) {
 
   return [];
 }
+
+/**
+ * Fetch a Bsale document directly by its document number (boleta/factura number).
+ */
+export async function fetchBsaleByDocumentNumber(number) {
+  const http = makeHttp();
+  if (!http) return [];
+  try {
+    const { data } = await http.get('/documents.json', { params: { number, limit: 5 } });
+    return (data?.items || []).map(d => mapDoc(d, null));
+  } catch { return []; }
+}

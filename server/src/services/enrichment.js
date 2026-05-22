@@ -7,8 +7,8 @@
  * Runs up to MAX_ROUNDS times or until no new identifiers are discovered.
  */
 
-import { fetchBsaleForContact } from './bsale_panel.js';
-import { fetchShopifyForContact } from './shopify_panel.js';
+import { fetchBsaleForContact, fetchBsaleByDocumentNumber } from './bsale_panel.js';
+import { fetchShopifyForContact, fetchShopifyByOrderName } from './shopify_panel.js';
 import { searchContactInChatwoot } from './chatwoot_panel.js';
 import { extractEntities } from './extractor.js';
 
@@ -48,10 +48,12 @@ class EnrichmentContext {
     this._usedBsale   = new Set();
     this._usedShopify = new Set();
     this._usedChatwoot = new Set();
-    this._usedDbShopify  = new Set();
-    this._usedDbBsale    = new Set();
-    this._usedDbDevices  = new Set();
-    this._usedDbService  = new Set();
+    this._usedDbShopify      = new Set();
+    this._usedDbBsale        = new Set();
+    this._usedDbDevices      = new Set();
+    this._usedDbService      = new Set();
+    this._usedApiShopifyOrders = new Set(); // SM numbers searched via API
+    this._usedApiBsaleDocs     = new Set(); // boleta numbers searched via API
   }
 
   // ── Adders (return true when the value is new) ──────────────────────────────
@@ -252,6 +254,31 @@ async function fromDbServiceOrders(ctx, db, orderNumbers) {
   }
 }
 
+async function fromShopifyByOrderNames(ctx, orderNames) {
+  for (const name of orderNames.slice(0, 5)) {
+    const orders = await fetchShopifyByOrderName(name).catch(() => []);
+    for (const o of orders) {
+      if (ctx.shopifyOrders.has(o.shopify_order_id)) continue;
+      ctx.shopifyOrders.set(o.shopify_order_id, o);
+      ctx.addEmail(o.contact_email);
+      ctx.addPhone(o.contact_phone);
+      ctx.addName(o.contact_name);
+    }
+  }
+}
+
+async function fromBsaleByDocNumbers(ctx, numbers) {
+  for (const num of numbers.slice(0, 5)) {
+    const docs = await fetchBsaleByDocumentNumber(num).catch(() => []);
+    for (const d of docs) {
+      if (ctx.bsaleDocs.has(d.document_number)) continue;
+      ctx.bsaleDocs.set(d.document_number, d);
+      ctx.addEmail(d.contact_email);
+      ctx.addName(d.contact_name);
+    }
+  }
+}
+
 // ─── Round runner ─────────────────────────────────────────────────────────────
 
 async function runRound(ctx, db) {
@@ -276,6 +303,14 @@ async function runRound(ctx, db) {
   if (newBoletas.length)       tasks.push(fromDbBsale(ctx, db, newBoletas).catch(() => {}));
   if (newImeis.length)         tasks.push(fromDbDevices(ctx, db, newImeis).catch(() => {}));
   if (newServiceOrders.length) tasks.push(fromDbServiceOrders(ctx, db, newServiceOrders).catch(() => {}));
+
+  // API lookups for SM order numbers and boleta numbers from messages
+  const newApiShopifyOrders = ctx.newDbItems(ctx.shopifyOrderNames, ctx._usedApiShopifyOrders);
+  const newApiBoletas       = ctx.newDbItems(ctx.boletaNumbers, ctx._usedApiBsaleDocs);
+  newApiShopifyOrders.forEach(v => ctx._usedApiShopifyOrders.add(v));
+  newApiBoletas.forEach(v => ctx._usedApiBsaleDocs.add(v));
+  if (newApiShopifyOrders.length) tasks.push(fromShopifyByOrderNames(ctx, newApiShopifyOrders).catch(() => {}));
+  if (newApiBoletas.length)       tasks.push(fromBsaleByDocNumbers(ctx, newApiBoletas).catch(() => {}));
 
   if (!tasks.length) return false;
   await Promise.all(tasks);
