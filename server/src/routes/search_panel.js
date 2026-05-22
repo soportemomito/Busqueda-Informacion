@@ -59,6 +59,7 @@ panelSearchRouter.get('/', async (req, res) => {
 
     res.json({
       ...result,
+      duplicate_signals: [],
       meta: { found },
     });
 

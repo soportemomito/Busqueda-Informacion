@@ -132,7 +132,7 @@ td { color: #333; }
       var qs = new URLSearchParams(_params).toString();
       var r = await fetch('/search?' + qs);
       var data = await r.json();
-      setStatus(data.meta && data.meta.found ? 'Contacto encontrado (' + data.meta.searched_by + ')' : 'No encontrado');
+      setStatus(data.meta && data.meta.found ? 'Contacto encontrado' : 'No encontrado');
       render(data);
     } catch (e) {
       setStatus('Error al cargar datos');
@@ -273,26 +273,30 @@ td { color: #333; }
     if (el) el.textContent = msg;
   }
 
-  // Chatwoot postMessage integration — handles multiple Chatwoot versions
+  // Chatwoot postMessage integration
   window.addEventListener('message', function(event) {
     try {
-      var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-      if (!data || typeof data !== 'object') return;
+      var raw = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      if (!raw || typeof raw !== 'object') return;
+
+      // Chatwoot Dashboard App sends: { event: "appContext", data: { conversation, currentAgent } }
+      // Unwrap the outer envelope if present
+      var data = (raw.event === 'appContext' && raw.data) ? raw.data : raw;
 
       var sender = {};
       var convId = null;
 
-      // Format A: { meta: { sender: {...} }, id: 123 }  ← most common
-      if (data.meta && data.meta.sender) {
+      // Format A: { conversation: { meta: { sender }, id } }  ← Chatwoot Dashboard App
+      if (data.conversation && data.conversation.meta && data.conversation.meta.sender) {
+        sender = data.conversation.meta.sender;
+        convId = data.conversation.id;
+      }
+      // Format B: { meta: { sender }, id }
+      else if (data.meta && data.meta.sender) {
         sender = data.meta.sender;
         convId = data.id;
       }
-      // Format B: { conversation: { meta: { sender: {...} }, id: 123 } }
-      else if (data.conversation && data.conversation.meta) {
-        sender = data.conversation.meta.sender || {};
-        convId = data.conversation.id;
-      }
-      // Format C: { contact: { email, phone_number, name }, id: 123 }
+      // Format C: { contact: { email, phone_number, name }, id }
       else if (data.contact) {
         sender = data.contact;
         convId = data.id;
@@ -300,11 +304,12 @@ td { color: #333; }
       // Nothing useful
       else { return; }
 
+      // Always seed with conversation_id when available — backend fetches full contact
       var p = {};
+      if (convId)              p.conversation_id = convId;
       if (sender.email)        p.email = sender.email;
       if (sender.phone_number) p.phone = sender.phone_number;
       if (sender.name && !p.email && !p.phone) p.name = sender.name;
-      if (convId)              p.conversation_id = convId;
 
       if (!Object.keys(p).length) return;
 
