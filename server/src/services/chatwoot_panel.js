@@ -74,6 +74,28 @@ export async function getContactFromConversation(conversation_id) {
 }
 
 /**
+ * Fetches all messages from a conversation.
+ * Returns array of { content, message_type, sender_type }.
+ */
+export async function getConversationMessages(conversation_id) {
+  const client = makeClient();
+  if (!client) return [];
+  const { http, accountId } = client;
+  try {
+    const { data } = await http.get(
+      `/api/v1/accounts/${accountId}/conversations/${conversation_id}/messages`
+    );
+    return (data?.payload || []).map(m => ({
+      content: m.content || '',
+      message_type: m.message_type,
+      sender_type: m.sender_type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Search a contact in Chatwoot by email, phone or name (text search).
  * Used when no conversation_id is available (manual search).
  */

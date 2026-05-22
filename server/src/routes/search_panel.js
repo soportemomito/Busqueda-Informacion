@@ -5,11 +5,18 @@ import { getBsaleDocuments, getShopifyOrders, getServiceOrders } from '../db/doc
 import { getDuplicateSignals } from '../db/signals.js';
 import { fetchBsaleForContact } from '../services/bsale_panel.js';
 import { fetchShopifyForContact } from '../services/shopify_panel.js';
-import { getContactFromConversation, searchContactInChatwoot } from '../services/chatwoot_panel.js';
+import { getContactFromConversation, getConversationMessages, searchContactInChatwoot } from '../services/chatwoot_panel.js';
+import { extractEntities } from '../services/extractor.js';
 
 export const panelSearchRouter = Router();
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// Matches common email format in message text
+const EMAIL_RE = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
+// Chilean mobile (+569XXXXXXXX, 569XXXXXXXX, 9XXXXXXXX)
+const PHONE_RE = /(?:\+?56\s?)?9\d{8}/g;
+// Internal SoyMomo domains — ignore emails from these
+const INTERNAL_DOMAINS = new Set(['soymomo.com', 'soymomo.io', 'helpdesk.soymomo.io']);
 
 function isStale(rows) {
   if (!rows.length) return true;
@@ -17,10 +24,42 @@ function isStale(rows) {
   return Date.now() - oldest > CACHE_TTL_MS;
 }
 
+function dedup(arr, key) {
+  const seen = new Set();
+  return arr.filter(r => { if (seen.has(r[key])) return false; seen.add(r[key]); return true; });
+}
+
+/**
+ * Extracts all useful identifiers from conversation message text:
+ * IMEIs, SIMs, order numbers, boletas, emails, phones.
+ */
+function extractFromMessages(messages) {
+  const text = messages.map(m => m.content || '').join('\n');
+
+  const entities = extractEntities(text);
+
+  const imeis     = entities.filter(e => e.entity_type === 'imei').map(e => e.normalized_value);
+  const simIds    = entities.filter(e => e.entity_type === 'sim_id').map(e => e.normalized_value);
+  const shopifyOrders = entities.filter(e => e.entity_type === 'shopify_order').map(e => e.normalized_value);
+  const boletas   = entities.filter(e => e.entity_type === 'boleta').map(e => e.normalized_value);
+  const serviceOrders = entities.filter(e => e.entity_type === 'service_order').map(e => e.normalized_value);
+
+  const emails = [...new Set(
+    (text.match(EMAIL_RE) || [])
+      .map(e => e.toLowerCase())
+      .filter(e => !INTERNAL_DOMAINS.has(e.split('@')[1] || ''))
+  )];
+
+  const phones = [...new Set(
+    (text.match(PHONE_RE) || []).map(p => p.replace(/[\s\-]/g, ''))
+  )];
+
+  return { imeis, simIds, shopifyOrders, boletas, serviceOrders, emails, phones, rawEntities: entities };
+}
+
 async function getDevicesForContact(db, contactInternalId, convInternalIds) {
   const seen = new Set();
   const devices = [];
-
   const add = (rows) => {
     for (const row of rows || []) {
       const dev = row.devices;
@@ -29,19 +68,16 @@ async function getDevicesForContact(db, contactInternalId, convInternalIds) {
       devices.push(dev);
     }
   };
-
   if (convInternalIds.length) {
     const { data } = await db.from('conversation_devices')
       .select('device_id, devices(id, imei, sim_id, brand, model)')
       .in('conversation_id', convInternalIds);
     add(data);
   }
-
   const { data } = await db.from('contact_devices')
     .select('device_id, devices(id, imei, sim_id, brand, model)')
     .eq('contact_id', contactInternalId);
   add(data);
-
   return devices;
 }
 
@@ -50,7 +86,7 @@ panelSearchRouter.get('/', async (req, res) => {
     const { email, phone, name, conversation_id } = req.query;
     const db = getDb();
 
-    // Locate contact
+    // ── 1. Try Supabase first ─────────────────────────────────────────────────
     let contact = null;
     let searchedBy = 'none';
 
@@ -61,21 +97,19 @@ panelSearchRouter.get('/', async (req, res) => {
         .maybeSingle();
       if (conv?.contacts) { contact = conv.contacts; searchedBy = 'conversation_id'; }
     }
-    if (!contact && email)  { contact = await findContact({ email });  searchedBy = 'email'; }
-    if (!contact && phone)  { contact = await findContact({ phone });  searchedBy = 'phone'; }
-    if (!contact && name)   { contact = await findContact({ name });   searchedBy = 'name'; }
+    if (!contact && email) { contact = await findContact({ email });  searchedBy = 'email'; }
+    if (!contact && phone) { contact = await findContact({ phone });  searchedBy = 'phone'; }
+    if (!contact && name)  { contact = await findContact({ name });   searchedBy = 'name'; }
 
-    // Fallback: Supabase empty → resolve full contact from Chatwoot
+    // ── 2. Chatwoot fallback — fetch contact + messages in parallel ────────────
     if (!contact) {
-      // Prefer conversation_id (gives full contact with all channel data)
-      let cwResult = null;
-      if (conversation_id) {
-        cwResult = await getContactFromConversation(conversation_id);
-      }
-      // Manual search fallback
-      if (!cwResult) {
-        cwResult = await searchContactInChatwoot({ email, phone, name });
-      }
+      const [cwResult, messages] = await Promise.all([
+        conversation_id
+          ? getContactFromConversation(conversation_id)
+          : searchContactInChatwoot({ email, phone, name }),
+        conversation_id ? getConversationMessages(conversation_id) : Promise.resolve([]),
+      ]);
+
       if (!cwResult) {
         return res.json({
           contact: null, devices: [], conversations: [], bsale_documents: [],
@@ -85,103 +119,152 @@ panelSearchRouter.get('/', async (req, res) => {
       }
 
       const c = cwResult.contact;
+      const extracted = extractFromMessages(messages);
 
-      // Use ALL available identifiers: email + phone + name
-      const [bsaleDocs, shopifyOrders] = await Promise.all([
-        fetchBsaleForContact(c.email, c.phone_whatsapp, c.name),
-        fetchShopifyForContact(c.email, c.phone_whatsapp),
+      // Build full identifier set: contact data + extracted from messages
+      const allEmails = [...new Set([c.email, ...extracted.emails].filter(Boolean))];
+      const allPhones = [...new Set([c.phone_whatsapp, ...extracted.phones].filter(Boolean))];
+
+      // Parallel: live API searches + Supabase lookups by extracted entities
+      const [
+        bsaleFromApi,
+        shopifyFromApi,
+        deviceRows,
+        shopifyByOrder,
+        bsaleByBoleta,
+        serviceByOrder,
+      ] = await Promise.all([
+        fetchBsaleForContact(allEmails[0] || null, allPhones[0] || null, c.name),
+        fetchShopifyForContact(allEmails[0] || null, allPhones[0] || null),
+        extracted.imeis.length
+          ? db.from('devices').select('imei, sim_id, brand, model').in('imei', extracted.imeis)
+          : Promise.resolve({ data: [] }),
+        extracted.shopifyOrders.length
+          ? db.from('shopify_orders').select('*').in('order_name', extracted.shopifyOrders)
+          : Promise.resolve({ data: [] }),
+        extracted.boletas.length
+          ? db.from('bsale_documents').select('*').in('document_number', extracted.boletas)
+          : Promise.resolve({ data: [] }),
+        extracted.serviceOrders.length
+          ? db.from('service_orders').select('*').in('order_number', extracted.serviceOrders)
+          : Promise.resolve({ data: [] }),
       ]);
 
-      // Cache results in Supabase for next time
-      const db = getDb();
-      if (bsaleDocs.length) {
-        db.from('bsale_documents')
-          .upsert(bsaleDocs, { onConflict: 'document_number', ignoreDuplicates: false })
-          .catch(() => {});
-      }
-      if (shopifyOrders.length) {
-        db.from('shopify_orders')
-          .upsert(shopifyOrders, { onConflict: 'shopify_order_id', ignoreDuplicates: false })
-          .catch(() => {});
-      }
+      // Merge + deduplicate
+      const allBsale   = dedup([...bsaleFromApi, ...(bsaleByBoleta.data || [])], 'document_number');
+      const allShopify = dedup([...shopifyFromApi, ...(shopifyByOrder.data || [])], 'shopify_order_id');
+      const devices    = deviceRows.data || [];
+
+      // Cache results async (fire-and-forget)
+      if (allBsale.length)
+        db.from('bsale_documents').upsert(allBsale, { onConflict: 'document_number', ignoreDuplicates: false }).catch(() => {});
+      if (allShopify.length)
+        db.from('shopify_orders').upsert(allShopify, { onConflict: 'shopify_order_id', ignoreDuplicates: false }).catch(() => {});
 
       return res.json({
         contact: {
           id: null,
           name: c.name,
-          email: c.email,
-          phone: c.phone_whatsapp,
+          email: allEmails[0] || c.email,
+          phone: allPhones[0] || c.phone_whatsapp,
           chatwoot_contact_id: c.chatwoot_contact_id,
         },
-        devices: [],
+        devices: devices.map(d => ({ imei: d.imei, sim_id: d.sim_id, brand: d.brand, model: d.model })),
         conversations: cwResult.conversations,
-        bsale_documents: bsaleDocs.map(d => ({
-          document_number: d.document_number,
-          document_type: d.document_type,
-          total_amount: d.total_amount,
-          issued_at: d.issued_at,
+        bsale_documents: allBsale.map(d => ({
+          document_number: d.document_number, document_type: d.document_type,
+          total_amount: d.total_amount, issued_at: d.issued_at,
         })),
-        shopify_orders: shopifyOrders.map(o => ({
-          order_name: o.order_name,
-          status: o.status,
-          financial_status: o.financial_status,
-          total_price: o.total_price,
+        shopify_orders: allShopify.map(o => ({
+          order_name: o.order_name, status: o.status,
+          financial_status: o.financial_status, total_price: o.total_price,
         })),
-        service_orders: [],
+        service_orders: (serviceByOrder.data || []).map(o => ({
+          order_number: o.order_number, status: o.status,
+          technician: o.technician, received_at: o.received_at,
+        })),
         duplicate_signals: [],
-        meta: { searched_by: searchedBy + '_chatwoot', found: true },
+        meta: {
+          searched_by: searchedBy + '_chatwoot',
+          found: true,
+          extracted: {
+            emails: extracted.emails,
+            phones: extracted.phones,
+            imeis: extracted.imeis,
+            shopify_orders: extracted.shopifyOrders,
+            boletas: extracted.boletas,
+            service_orders: extracted.serviceOrders,
+          },
+        },
       });
     }
 
-    // Conversations (non-merged)
-    const { data: convRows } = await db.from('conversations')
-      .select('id, chatwoot_conversation_id, channel_type, status, assignee_name, labels, chatwoot_created_at')
-      .eq('contact_id', contact.id)
-      .eq('is_merged', false)
-      .order('chatwoot_created_at', { ascending: false });
+    // ── 3. Contact found in Supabase — also enrich with conversation messages ──
+    const [convRows, messages] = await Promise.all([
+      db.from('conversations')
+        .select('id, chatwoot_conversation_id, channel_type, status, assignee_name, labels, chatwoot_created_at')
+        .eq('contact_id', contact.id)
+        .eq('is_merged', false)
+        .order('chatwoot_created_at', { ascending: false }),
+      conversation_id ? getConversationMessages(conversation_id) : Promise.resolve([]),
+    ]);
 
-    const conversations = convRows || [];
+    const conversations = convRows.data || [];
     const convInternalIds = conversations.map(c => c.id);
     const convChatwootIds = conversations.map(c => c.chatwoot_conversation_id);
 
-    // Devices
+    const extracted = extractFromMessages(messages);
+    const allEmails = [...new Set([contact.email, ...extracted.emails].filter(Boolean))];
+    const allPhones = [...new Set([contact.phone_whatsapp, ...extracted.phones].filter(Boolean))];
+
     const devices = await getDevicesForContact(db, contact.id, convInternalIds);
     const deviceIds = devices.map(d => d.id);
 
-    // Bsale (cache-or-fetch)
-    let bsaleDocs = await getBsaleDocuments(contact.id, contact.email, convInternalIds);
+    // Bsale: cache-or-fetch + merge with boletas found in messages
+    let bsaleDocs = await getBsaleDocuments(contact.id, allEmails[0] || null, convInternalIds);
     if (isStale(bsaleDocs) && (process.env.BSALE_ACCESS_TOKEN || process.env.BSALE_API_TOKEN)) {
-      const fresh = await fetchBsaleForContact(contact.email, contact.phone_whatsapp, contact.name);
+      const fresh = await fetchBsaleForContact(allEmails[0] || null, allPhones[0] || null, contact.name);
       if (fresh.length) {
-        await db.from('bsale_documents')
-          .upsert(fresh, { onConflict: 'document_number', ignoreDuplicates: false });
+        await db.from('bsale_documents').upsert(fresh, { onConflict: 'document_number', ignoreDuplicates: false });
         bsaleDocs = fresh;
       }
     }
+    if (extracted.boletas.length) {
+      const { data: byNum } = await db.from('bsale_documents').select('*').in('document_number', extracted.boletas);
+      bsaleDocs = dedup([...bsaleDocs, ...(byNum || [])], 'document_number');
+    }
 
-    // Shopify (cache-or-fetch)
-    let shopifyOrders = await getShopifyOrders(contact.id, contact.email, contact.phone_whatsapp, convInternalIds);
+    // Shopify: cache-or-fetch + merge with orders found in messages
+    let shopifyOrders = await getShopifyOrders(contact.id, allEmails[0] || null, allPhones[0] || null, convInternalIds);
     if (isStale(shopifyOrders) && process.env.SHOPIFY_ACCESS_TOKEN && (process.env.SHOPIFY_API_URL || process.env.SHOPIFY_STORE_URL)) {
-      const fresh = await fetchShopifyForContact(contact.email, contact.phone_whatsapp);
+      const fresh = await fetchShopifyForContact(allEmails[0] || null, allPhones[0] || null);
       if (fresh.length) {
-        await db.from('shopify_orders')
-          .upsert(fresh, { onConflict: 'shopify_order_id', ignoreDuplicates: false });
+        await db.from('shopify_orders').upsert(fresh, { onConflict: 'shopify_order_id', ignoreDuplicates: false });
         shopifyOrders = fresh;
       }
     }
+    if (extracted.shopifyOrders.length) {
+      const { data: byName } = await db.from('shopify_orders').select('*').in('order_name', extracted.shopifyOrders);
+      shopifyOrders = dedup([...shopifyOrders, ...(byName || [])], 'shopify_order_id');
+    }
 
-    // Service orders
+    // Devices from extracted IMEIs
+    if (extracted.imeis.length) {
+      const { data: extraDevices } = await db.from('devices').select('*').in('imei', extracted.imeis);
+      const extraIds = (extraDevices || []).map(d => d.id);
+      devices.push(...(extraDevices || []).filter(d => !deviceIds.includes(d.id)));
+      deviceIds.push(...extraIds.filter(id => !deviceIds.includes(id)));
+    }
+
     const serviceOrders = await getServiceOrders(contact.id, deviceIds, convInternalIds);
-
-    // Duplicate signals
     const duplicateSignals = await getDuplicateSignals(convChatwootIds);
 
     res.json({
       contact: {
         id: contact.id,
         name: contact.name,
-        email: contact.email,
-        phone: contact.phone_whatsapp,
+        email: allEmails[0] || contact.email,
+        phone: allPhones[0] || contact.phone_whatsapp,
         chatwoot_contact_id: contact.chatwoot_contact_id,
       },
       devices: devices.map(d => ({ imei: d.imei, sim_id: d.sim_id, brand: d.brand, model: d.model })),
@@ -194,31 +277,34 @@ panelSearchRouter.get('/', async (req, res) => {
         labels: c.labels,
       })),
       bsale_documents: bsaleDocs.map(d => ({
-        document_number: d.document_number,
-        document_type: d.document_type,
-        total_amount: d.total_amount,
-        issued_at: d.issued_at,
+        document_number: d.document_number, document_type: d.document_type,
+        total_amount: d.total_amount, issued_at: d.issued_at,
       })),
       shopify_orders: shopifyOrders.map(o => ({
-        order_name: o.order_name,
-        status: o.status,
-        financial_status: o.financial_status,
-        total_price: o.total_price,
+        order_name: o.order_name, status: o.status,
+        financial_status: o.financial_status, total_price: o.total_price,
       })),
       service_orders: serviceOrders.map(o => ({
-        order_number: o.order_number,
-        status: o.status,
-        technician: o.technician,
-        received_at: o.received_at,
+        order_number: o.order_number, status: o.status,
+        technician: o.technician, received_at: o.received_at,
       })),
       duplicate_signals: duplicateSignals.map(s => ({
-        signal_type: s.signal_type,
-        signal_value: s.signal_value,
-        conversation_id_a: s.conversation_id_a,
-        conversation_id_b: s.conversation_id_b,
+        signal_type: s.signal_type, signal_value: s.signal_value,
+        conversation_id_a: s.conversation_id_a, conversation_id_b: s.conversation_id_b,
         status: s.status,
       })),
-      meta: { searched_by: searchedBy, found: true },
+      meta: {
+        searched_by: searchedBy,
+        found: true,
+        extracted: {
+          emails: extracted.emails,
+          phones: extracted.phones,
+          imeis: extracted.imeis,
+          shopify_orders: extracted.shopifyOrders,
+          boletas: extracted.boletas,
+          service_orders: extracted.serviceOrders,
+        },
+      },
     });
 
   } catch (err) {
