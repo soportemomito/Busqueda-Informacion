@@ -134,6 +134,17 @@ class EnrichmentContext {
         email: this.chatwootContact.email || this.contactEmail || null,
         phone: this.chatwootContact.phone_whatsapp || this.contactPhone || null,
       };
+    } else {
+      // No Chatwoot contact (e.g. manual search) — build from discovered data
+      const firstOrder = [...this.shopifyOrders.values()][0];
+      const firstDoc   = [...this.bsaleDocs.values()][0];
+      const firstST    = [...this.serviceOrders.values()][0];
+      const name  = firstOrder?.contact_name || firstDoc?.contact_name || firstST?.contact_name || null;
+      const email = this.contactEmail || firstOrder?.contact_email || firstDoc?.contact_email || firstST?.contact_email || null;
+      const phone = this.contactPhone || firstOrder?.contact_phone || null;
+      if (name || email || phone) {
+        contact = { chatwoot_contact_id: null, name, email, phone };
+      }
     }
     return {
       contact,
@@ -355,8 +366,11 @@ export async function runEnrichment(seed, db) {
   if (seed.boleta)        ctx.addBoleta(seed.boleta);
   if (seed.service_order) ctx.addServiceOrder(seed.service_order);
 
-  // Seed from conversation messages (secondary — don't use as primary contact identifiers)
-  for (const m of seed.messages || []) ctx.addFromText(m.content);
+  // Only extract identifiers from INCOMING messages (customer wrote them).
+  // Skipping agent/outgoing messages avoids picking up agent emails as contact identifiers.
+  for (const m of seed.messages || []) {
+    if (m.message_type === 0 || m.message_type === 'incoming') ctx.addFromText(m.content);
+  }
 
   // Seed pre-fetched Chatwoot contact (skip Chatwoot text search for this)
   if (seed.cwContact) {

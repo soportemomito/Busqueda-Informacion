@@ -96,7 +96,7 @@ td { color: #333; }
 <div class="manual-bar">
   <button class="btn-manual" onclick="toggleManual()">Buscar manualmente</button>
   <div class="manual-row" id="manualRow">
-    <input type="text" id="manualInput" placeholder="Email, teléfono o nombre…" onkeydown="if(event.key==='Enter')doManualSearch()">
+    <input type="text" id="manualInput" placeholder="Email, teléfono, nombre, SM1234, OS-56, boleta…" onkeydown="if(event.key==='Enter')doManualSearch()">
     <button class="btn-search" onclick="doManualSearch()">Buscar</button>
   </div>
 </div>
@@ -121,9 +121,12 @@ td { color: #333; }
   function doManualSearch() {
     var q = (document.getElementById('manualInput').value || '').trim();
     if (!q) return;
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) _params = { email: q };
-    else if (/^\+?[\d\s\-]{7,}$/.test(q)) _params = { phone: q };
-    else _params = { name: q };
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q))  _params = { email: q };
+    else if (/^SM\d+$/i.test(q))                _params = { shopify_order: q.toUpperCase() };
+    else if (/^OS[-\s]?\d+$/i.test(q))          _params = { service_order: q };
+    else if (/^\d{4,8}$/.test(q))               _params = { boleta: q };
+    else if (/^\+?[\d\s\-()+]{7,}$/.test(q))    _params = { phone: q };
+    else                                         _params = { name: q };
     load();
   }
 

@@ -36,33 +36,25 @@ export async function fetchShopifyForContact(email, phone) {
   const http = makeHttp();
   if (!http) return [];
 
-  const seen = new Set();
-  const results = [];
-
-  const add = (orders) => {
-    for (const o of orders) {
-      if (!seen.has(o.shopify_order_id)) {
-        seen.add(o.shopify_order_id);
-        results.push(o);
-      }
-    }
-  };
-
+  // Email is most reliable — if it returns results, stop there.
+  // Only fall back to phone if email is absent or returns nothing.
   if (email) {
     try {
       const { data } = await http.get('/orders.json', { params: { email, status: 'any', limit: 10 } });
-      add((data?.orders || []).map(mapOrder));
+      const orders = (data?.orders || []).map(mapOrder);
+      if (orders.length) return orders;
     } catch { /* silent */ }
   }
 
   if (phone) {
     try {
-      const { data } = await http.get('/orders.json', { params: { phone, status: 'any', limit: 10 } });
-      add((data?.orders || []).map(mapOrder));
+      const digits = phone.replace(/\D/g, '');
+      const { data } = await http.get('/orders.json', { params: { phone: digits, status: 'any', limit: 10 } });
+      return (data?.orders || []).map(mapOrder);
     } catch { /* silent */ }
   }
 
-  return results;
+  return [];
 }
 
 /**
