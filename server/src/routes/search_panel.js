@@ -5,7 +5,7 @@ import { getBsaleDocuments, getShopifyOrders, getServiceOrders } from '../db/doc
 import { getDuplicateSignals } from '../db/signals.js';
 import { fetchBsaleForContact } from '../services/bsale_panel.js';
 import { fetchShopifyForContact } from '../services/shopify_panel.js';
-import { searchContactInChatwoot } from '../services/chatwoot_panel.js';
+import { getContactFromConversation, searchContactInChatwoot } from '../services/chatwoot_panel.js';
 
 export const panelSearchRouter = Router();
 
@@ -65,9 +65,17 @@ panelSearchRouter.get('/', async (req, res) => {
     if (!contact && phone)  { contact = await findContact({ phone });  searchedBy = 'phone'; }
     if (!contact && name)   { contact = await findContact({ name });   searchedBy = 'name'; }
 
-    // Fallback: Supabase is empty → search Chatwoot directly
+    // Fallback: Supabase empty → resolve full contact from Chatwoot
     if (!contact) {
-      const cwResult = await searchContactInChatwoot({ email, phone, name, conversation_id });
+      // Prefer conversation_id (gives full contact with all channel data)
+      let cwResult = null;
+      if (conversation_id) {
+        cwResult = await getContactFromConversation(conversation_id);
+      }
+      // Manual search fallback
+      if (!cwResult) {
+        cwResult = await searchContactInChatwoot({ email, phone, name });
+      }
       if (!cwResult) {
         return res.json({
           contact: null, devices: [], conversations: [], bsale_documents: [],
@@ -77,33 +85,51 @@ panelSearchRouter.get('/', async (req, res) => {
       }
 
       const c = cwResult.contact;
+
+      // Use ALL available identifiers: email + phone + name
       const [bsaleDocs, shopifyOrders] = await Promise.all([
-        fetchBsaleForContact(c.email, c.name),
+        fetchBsaleForContact(c.email, c.phone_whatsapp, c.name),
         fetchShopifyForContact(c.email, c.phone_whatsapp),
       ]);
 
-      // Persist to Supabase for future cache hits
+      // Cache results in Supabase for next time
       const db = getDb();
       if (bsaleDocs.length) {
-        await db.from('bsale_documents')
+        db.from('bsale_documents')
           .upsert(bsaleDocs, { onConflict: 'document_number', ignoreDuplicates: false })
           .catch(() => {});
       }
       if (shopifyOrders.length) {
-        await db.from('shopify_orders')
+        db.from('shopify_orders')
           .upsert(shopifyOrders, { onConflict: 'shopify_order_id', ignoreDuplicates: false })
           .catch(() => {});
       }
 
       return res.json({
-        contact: { id: null, name: c.name, email: c.email, phone: c.phone_whatsapp, chatwoot_contact_id: c.chatwoot_contact_id },
+        contact: {
+          id: null,
+          name: c.name,
+          email: c.email,
+          phone: c.phone_whatsapp,
+          chatwoot_contact_id: c.chatwoot_contact_id,
+        },
         devices: [],
         conversations: cwResult.conversations,
-        bsale_documents: bsaleDocs.map(d => ({ document_number: d.document_number, document_type: d.document_type, total_amount: d.total_amount, issued_at: d.issued_at })),
-        shopify_orders: shopifyOrders.map(o => ({ order_name: o.order_name, status: o.status, financial_status: o.financial_status, total_price: o.total_price })),
+        bsale_documents: bsaleDocs.map(d => ({
+          document_number: d.document_number,
+          document_type: d.document_type,
+          total_amount: d.total_amount,
+          issued_at: d.issued_at,
+        })),
+        shopify_orders: shopifyOrders.map(o => ({
+          order_name: o.order_name,
+          status: o.status,
+          financial_status: o.financial_status,
+          total_price: o.total_price,
+        })),
         service_orders: [],
         duplicate_signals: [],
-        meta: { searched_by: searchedBy + '_chatwoot_fallback', found: true },
+        meta: { searched_by: searchedBy + '_chatwoot', found: true },
       });
     }
 
@@ -125,7 +151,7 @@ panelSearchRouter.get('/', async (req, res) => {
     // Bsale (cache-or-fetch)
     let bsaleDocs = await getBsaleDocuments(contact.id, contact.email, convInternalIds);
     if (isStale(bsaleDocs) && (process.env.BSALE_ACCESS_TOKEN || process.env.BSALE_API_TOKEN)) {
-      const fresh = await fetchBsaleForContact(contact.email, contact.name);
+      const fresh = await fetchBsaleForContact(contact.email, contact.phone_whatsapp, contact.name);
       if (fresh.length) {
         await db.from('bsale_documents')
           .upsert(fresh, { onConflict: 'document_number', ignoreDuplicates: false });

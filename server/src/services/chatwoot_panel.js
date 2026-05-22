@@ -14,7 +14,7 @@ function makeClient() {
 function mapConversations(convs) {
   return (convs || []).map(c => ({
     chatwoot_conversation_id: c.id,
-    channel_type: c.channel || c.meta?.channel || c.inbox_id || null,
+    channel_type: c.channel || c.meta?.channel || null,
     status: c.status || null,
     chatwoot_created_at: c.created_at
       ? new Date(typeof c.created_at === 'number' ? c.created_at * 1000 : c.created_at).toISOString()
@@ -24,47 +24,68 @@ function mapConversations(convs) {
   }));
 }
 
+function mapContact(c) {
+  return {
+    chatwoot_contact_id: c.id,
+    name: c.name || null,
+    email: c.email || null,
+    // Chatwoot stores WhatsApp/phone in phone_number
+    phone_whatsapp: c.phone_number || null,
+    // Additional identifiers that might be available
+    additional_attributes: c.additional_attributes || {},
+  };
+}
+
 /**
- * Search a contact in Chatwoot by email, phone, name or conversation_id.
- * Returns { contact, conversations } or null.
+ * Given a conversation_id, fetches the FULL contact record from Chatwoot.
+ * This gives all available identifiers regardless of the channel used.
  */
-export async function searchContactInChatwoot({ email, phone, name, conversation_id }) {
+export async function getContactFromConversation(conversation_id) {
   const client = makeClient();
   if (!client) return null;
   const { http, accountId } = client;
 
   try {
-    // Via conversation_id: fetch the conversation and extract sender
-    if (conversation_id) {
-      const { data: conv } = await http.get(
-        `/api/v1/accounts/${accountId}/conversations/${conversation_id}`
+    // 1. Get conversation to find contact_id
+    const { data: conv } = await http.get(
+      `/api/v1/accounts/${accountId}/conversations/${conversation_id}`
+    );
+    const contactId = conv?.meta?.sender?.id;
+    if (!contactId) return null;
+
+    // 2. Fetch full contact (has all channels data consolidated)
+    const { data: contact } = await http.get(
+      `/api/v1/accounts/${accountId}/contacts/${contactId}`
+    );
+
+    // 3. Fetch all conversations for this contact
+    let conversations = [];
+    try {
+      const { data: cd } = await http.get(
+        `/api/v1/accounts/${accountId}/contacts/${contactId}/conversations`
       );
-      const sender = conv?.meta?.sender || conv?.sender || {};
-      if (sender.id) {
-        let conversations = [];
-        try {
-          const { data: cd } = await http.get(
-            `/api/v1/accounts/${accountId}/contacts/${sender.id}/conversations`
-          );
-          conversations = mapConversations(cd?.payload || []);
-        } catch { /* no conversations */ }
+      conversations = mapConversations(cd?.payload || []);
+    } catch { /* no conversations */ }
 
-        return {
-          contact: {
-            chatwoot_contact_id: sender.id,
-            name: sender.name || null,
-            email: sender.email || null,
-            phone_whatsapp: sender.phone_number || null,
-          },
-          conversations,
-        };
-      }
-    }
+    return { contact: mapContact(contact), conversations };
+  } catch {
+    return null;
+  }
+}
 
-    // Search by text query
-    const q = email || phone || name;
-    if (!q) return null;
+/**
+ * Search a contact in Chatwoot by email, phone or name (text search).
+ * Used when no conversation_id is available (manual search).
+ */
+export async function searchContactInChatwoot({ email, phone, name }) {
+  const client = makeClient();
+  if (!client) return null;
+  const { http, accountId } = client;
 
+  const q = email || phone || name;
+  if (!q) return null;
+
+  try {
     const { data } = await http.get(`/api/v1/accounts/${accountId}/contacts/search`, {
       params: { q, include_contacts: true, page: 1 },
     });
@@ -72,24 +93,24 @@ export async function searchContactInChatwoot({ email, phone, name, conversation
     const contacts = data?.payload || [];
     if (!contacts.length) return null;
 
-    const contact = contacts[0];
+    // Fetch full contact for the best match
+    let fullContact = contacts[0];
+    try {
+      const { data: fc } = await http.get(
+        `/api/v1/accounts/${accountId}/contacts/${contacts[0].id}`
+      );
+      fullContact = fc;
+    } catch { /* use partial data */ }
+
     let conversations = [];
     try {
       const { data: cd } = await http.get(
-        `/api/v1/accounts/${accountId}/contacts/${contact.id}/conversations`
+        `/api/v1/accounts/${accountId}/contacts/${fullContact.id}/conversations`
       );
       conversations = mapConversations(cd?.payload || []);
     } catch { /* no conversations */ }
 
-    return {
-      contact: {
-        chatwoot_contact_id: contact.id,
-        name: contact.name || null,
-        email: contact.email || null,
-        phone_whatsapp: contact.phone_number || null,
-      },
-      conversations,
-    };
+    return { contact: mapContact(fullContact), conversations };
   } catch {
     return null;
   }

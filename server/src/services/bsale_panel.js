@@ -26,31 +26,60 @@ function mapDoc(doc, contactEmail) {
   };
 }
 
+async function fetchDocsByClientIds(http, clientIds, fallbackEmail) {
+  const allDocs = [];
+  for (const id of clientIds.slice(0, 5)) {
+    try {
+      const { data } = await http.get('/documents.json', { params: { clientId: id, limit: 10 } });
+      allDocs.push(...(data?.items || []).map(d => mapDoc(d, fallbackEmail || null)));
+    } catch { /* silent */ }
+  }
+  return allDocs;
+}
+
 /**
- * Fetches Bsale documents for a contact. Returns [] on any error.
+ * Fetches Bsale documents for a contact using all available identifiers.
+ * Tries email → phone → name in order. Returns [] on any error.
  */
-export async function fetchBsaleForContact(email, name) {
+export async function fetchBsaleForContact(email, phone, name) {
   const http = makeHttp();
   if (!http) return [];
 
   try {
+    // 1. Search by email (most reliable)
     if (email) {
       const { data } = await http.get('/documents.json', { params: { clientEmail: email, limit: 10 } });
       const docs = (data?.items || []).map(d => mapDoc(d, email));
       if (docs.length) return docs;
+
+      // Email search on clients (in case docs endpoint returns empty)
+      const { data: cd } = await http.get('/clients.json', { params: { email, limit: 10 } });
+      const ids = (cd?.items || []).map(c => c.id);
+      if (ids.length) {
+        const docs2 = await fetchDocsByClientIds(http, ids, email);
+        if (docs2.length) return docs2;
+      }
     }
 
-    if (name) {
-      const { data: clientData } = await http.get('/clients.json', { params: { name, limit: 10 } });
-      const clients = clientData?.items || [];
-      const allDocs = [];
-      for (const client of clients.slice(0, 3)) {
-        try {
-          const { data } = await http.get('/documents.json', { params: { clientId: client.id, limit: 10 } });
-          allDocs.push(...(data?.items || []).map(d => mapDoc(d, client.email || email || null)));
-        } catch { /* silent */ }
+    // 2. Search by phone number
+    if (phone) {
+      // Normalize: keep digits only for Bsale
+      const digits = phone.replace(/\D/g, '');
+      const { data: cd } = await http.get('/clients.json', { params: { phone: digits, limit: 10 } });
+      const ids = (cd?.items || []).map(c => c.id);
+      if (ids.length) {
+        const docs = await fetchDocsByClientIds(http, ids, null);
+        if (docs.length) return docs;
       }
-      return allDocs;
+    }
+
+    // 3. Search by name (least reliable, needs at least 2 words)
+    if (name && name.trim().split(/\s+/).length >= 2) {
+      const { data: clientData } = await http.get('/clients.json', { params: { name, limit: 10 } });
+      const ids = (clientData?.items || []).map(c => c.id);
+      if (ids.length) {
+        return fetchDocsByClientIds(http, ids, null);
+      }
     }
   } catch { /* silent */ }
 
