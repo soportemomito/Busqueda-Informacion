@@ -226,9 +226,12 @@ td { color: #333; }
     // Boletas Bsale
     if (data.bsale_documents && data.bsale_documents.length) {
       var rows = data.bsale_documents.map(function(d) {
-        return '<tr><td>'+fmt(d.document_number)+'</td><td>'+fmt(d.document_type)+'</td><td>'+fmtMoney(d.total_amount)+'</td><td>'+fmtDate(d.issued_at)+'</td></tr>';
+        var link = (typeof BSALE_URL !== 'undefined' && BSALE_URL && d.bsale_doc_id)
+          ? '<a class="btn-link" href="'+BSALE_URL+'/ventas/documentos/'+d.bsale_doc_id+'" target="_blank">Ver</a>'
+          : '';
+        return '<tr><td>'+fmt(d.document_number)+'</td><td>'+fmt(d.document_type)+'</td><td>'+fmtMoney(d.total_amount)+'</td><td>'+link+'</td></tr>';
       }).join('');
-      html += sec('Boletas Bsale <span class="sec-count">('+data.bsale_documents.length+')</span>','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Boletas Bsale <span class="sec-count">('+data.bsale_documents.length+')</span>','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Boletas Bsale', noData());
     }
@@ -236,8 +239,8 @@ td { color: #333; }
     // Pedidos Shopify
     if (data.shopify_orders && data.shopify_orders.length) {
       var rows = data.shopify_orders.map(function(o) {
-        var link = (typeof SHOPIFY_URL !== 'undefined' && SHOPIFY_URL)
-          ? '<a class="btn-link" href="'+SHOPIFY_URL+'/admin/orders?name='+encodeURIComponent(o.order_name)+'" target="_blank">Ver</a>'
+        var link = (typeof SHOPIFY_URL !== 'undefined' && SHOPIFY_URL && o.shopify_order_id)
+          ? '<a class="btn-link" href="'+SHOPIFY_URL+'/admin/orders/'+o.shopify_order_id+'" target="_blank">Ver</a>'
           : '';
         return '<tr><td>'+fmt(o.order_name)+'</td><td>'+badge(o.financial_status)+'</td><td>'+fmtMoney(o.total_price)+'</td><td>'+link+'</td></tr>';
       }).join('');

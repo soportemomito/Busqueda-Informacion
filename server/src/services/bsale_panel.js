@@ -14,11 +14,16 @@ function makeHttp() {
 function mapDoc(doc, contactEmail) {
   const docType = doc.document_type;
   const typeName = docType && typeof docType === 'object' ? (docType.name || null) : (docType || null);
+  const client = doc.client || doc.contact || {};
+  const contactName = client.name
+    || [client.firstName, client.lastName].filter(Boolean).join(' ')
+    || null;
   return {
+    bsale_doc_id: String(doc.id || ''),
     document_number: String(doc.number || doc.serialNumber || doc.id || ''),
     document_type: typeName,
-    contact_name: null,
-    contact_email: contactEmail || null,
+    contact_name: contactName || null,
+    contact_email: contactEmail || client.email || null,
     total_amount: doc.totalAmount ?? null,
     issued_at: doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString() : null,
     raw_data: doc,

@@ -21,6 +21,11 @@ const PHONE_RE = /(?:\+?56\s?)?9\d{8}/g;
 
 class EnrichmentContext {
   constructor() {
+    // Primary identifiers — from the contact itself (Chatwoot or explicit seed)
+    // Used first for Shopify/Bsale searches to avoid contamination from message text
+    this.contactEmail = null;
+    this.contactPhone = null;
+
     // Identifier pools
     this.emails   = new Set();
     this.phones   = new Set();
@@ -157,13 +162,17 @@ function _add(set, value) {
 
 async function fromShopify(ctx) {
   ctx.markUsedShopify();
-  const email = [...ctx.emails][0] || null;
-  const phone = [...ctx.phones][0] || null;
+  // Prefer contact's primary email/phone over pool (avoids using emails from messages)
+  const email = ctx.contactEmail || [...ctx.emails][0] || null;
+  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
   const orders = await fetchShopifyForContact(email, phone);
   for (const o of orders) {
     if (ctx.shopifyOrders.has(o.shopify_order_id)) continue;
+    // Only keep orders that actually match a known identifier (exact match)
+    const emailMatch = !email || (o.contact_email || '').toLowerCase() === email.toLowerCase();
+    const phoneMatch = !phone || (o.contact_phone || '').replace(/\D/g,'').endsWith(phone.replace(/\D/g,'').slice(-8));
+    if (!emailMatch && !phoneMatch) continue;
     ctx.shopifyOrders.set(o.shopify_order_id, o);
-    // Extract new identifiers from order data
     ctx.addEmail(o.contact_email);
     ctx.addPhone(o.contact_phone);
     ctx.addName(o.contact_name);
@@ -172,8 +181,9 @@ async function fromShopify(ctx) {
 
 async function fromBsale(ctx) {
   ctx.markUsedBsale();
-  const email = [...ctx.emails][0] || null;
-  const phone = [...ctx.phones][0] || null;
+  // Prefer contact's primary email over pool
+  const email = ctx.contactEmail || [...ctx.emails][0] || null;
+  const phone = ctx.contactPhone || [...ctx.phones][0] || null;
   const name  = [...ctx.names][0]  || null;
   const docs = await fetchBsaleForContact(email, phone, name);
   for (const d of docs) {
@@ -286,9 +296,9 @@ async function runRound(ctx, db) {
 export async function runEnrichment(seed, db) {
   const ctx = new EnrichmentContext();
 
-  // Seed identifiers
-  if (seed.email)         ctx.addEmail(seed.email);
-  if (seed.phone)         ctx.addPhone(seed.phone);
+  // Seed explicit identifiers (from manual search or query params)
+  if (seed.email)         { ctx.contactEmail = seed.email; ctx.addEmail(seed.email); }
+  if (seed.phone)         { ctx.contactPhone = seed.phone; ctx.addPhone(seed.phone); }
   if (seed.name)          ctx.addName(seed.name);
   if (seed.imei)          ctx.addImei(seed.imei);
   if (seed.sim_id)        ctx.addSimId(seed.sim_id);
@@ -296,7 +306,7 @@ export async function runEnrichment(seed, db) {
   if (seed.boleta)        ctx.addBoleta(seed.boleta);
   if (seed.service_order) ctx.addServiceOrder(seed.service_order);
 
-  // Seed from conversation messages
+  // Seed from conversation messages (secondary — don't use as primary contact identifiers)
   for (const m of seed.messages || []) ctx.addFromText(m.content);
 
   // Seed pre-fetched Chatwoot contact (skip Chatwoot text search for this)
@@ -304,6 +314,9 @@ export async function runEnrichment(seed, db) {
     ctx.chatwootContact      = seed.cwContact;
     ctx.chatwootConversations = seed.cwConversations || [];
     ctx.markUsedChatwoot(); // don't search Chatwoot again by text
+    // These are the trusted primary identifiers for this contact
+    if (seed.cwContact.email)          ctx.contactEmail = seed.cwContact.email;
+    if (seed.cwContact.phone_whatsapp) ctx.contactPhone = seed.cwContact.phone_whatsapp;
     ctx.addEmail(seed.cwContact.email);
     ctx.addPhone(seed.cwContact.phone_whatsapp);
     ctx.addName(seed.cwContact.name);

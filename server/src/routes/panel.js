@@ -17,7 +17,8 @@ panelRouter.get('/', (_req, res) => {
     ? process.env.SHOPIFY_API_URL.replace(/\/admin\/api.*/, '')
     : (process.env.SHOPIFY_STORE_URL ? `https://${process.env.SHOPIFY_STORE_URL}` : '');
 
-  const config = `<script>var CW_URL="${cwUrl}",CW_ACCOUNT="${cwAccount}",SHOPIFY_URL="${shopifyUrl}";</script>`;
+  const bsaleUrl = 'https://app.bsale.cl';
+  const config = `<script>var CW_URL="${cwUrl}",CW_ACCOUNT="${cwAccount}",SHOPIFY_URL="${shopifyUrl}",BSALE_URL="${bsaleUrl}";</script>`;
   const injected = html.replace('</head>', config + '\n</head>');
   res.type('html').send(injected);
 });
