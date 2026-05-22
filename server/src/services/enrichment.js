@@ -150,11 +150,18 @@ class EnrichmentContext {
   toResult() {
     // Normalize contact fields: prefer Chatwoot data, fall back to identifier pools
     let contact = null;
+    // Best email: Chatwoot contact record → contactEmail (explicit seed) → email from message text
+    const bestEmail = () =>
+      this.contactEmail || [...this.directEmails][0] ||
+      [...this.shopifyOrders.values()][0]?.contact_email ||
+      [...this.bsaleDocs.values()][0]?.contact_email ||
+      [...this.serviceOrders.values()][0]?.contact_email || null;
+
     if (this.chatwootContact) {
       contact = {
         chatwoot_contact_id: this.chatwootContact.chatwoot_contact_id,
         name:  this.chatwootContact.name  || null,
-        email: this.chatwootContact.email || this.contactEmail || null,
+        email: this.chatwootContact.email || bestEmail(),
         phone: this.chatwootContact.phone_whatsapp || this.contactPhone || null,
       };
     } else {
@@ -163,7 +170,7 @@ class EnrichmentContext {
       const firstDoc   = [...this.bsaleDocs.values()][0];
       const firstST    = [...this.serviceOrders.values()][0];
       const name  = firstOrder?.contact_name || firstDoc?.contact_name || firstST?.contact_name || null;
-      const email = this.contactEmail || firstOrder?.contact_email || firstDoc?.contact_email || firstST?.contact_email || null;
+      const email = bestEmail();
       const phone = this.contactPhone || firstOrder?.contact_phone || null;
       if (name || email || phone) {
         contact = { chatwoot_contact_id: null, name, email, phone };
