@@ -14,6 +14,8 @@ body { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; backg
 .btn-icon { background: rgba(255,255,255,0.12); border: none; color: #fff; padding: 3px 9px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: background 0.15s; }
 .btn-icon:hover { background: rgba(255,255,255,0.22); }
 
+/* Status bar */
+.status-bar { background: #f0f0f8; border-bottom: 1px solid #e0e0e8; padding: 4px 10px; font-size: 10px; color: #888; min-height: 22px; }
 /* Manual search */
 .manual-bar { background: #fff; border-bottom: 1px solid #e0e0e8; padding: 7px 10px; }
 .btn-manual { background: none; border: 1px solid #1a1a2e; color: #1a1a2e; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
@@ -82,6 +84,7 @@ td { color: #333; }
   <button class="btn-icon" onclick="refresh()" title="Actualizar">↻ Actualizar</button>
 </div>
 
+<div class="status-bar" id="statusBar">Esperando conversación de Chatwoot…</div>
 <div class="manual-bar">
   <button class="btn-manual" onclick="toggleManual()">Buscar manualmente</button>
   <div class="manual-row" id="manualRow">
@@ -123,13 +126,16 @@ td { color: #333; }
   async function load() {
     if (_loading) return;
     _loading = true;
+    setStatus('Cargando…');
     document.getElementById('app').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
     try {
       var qs = new URLSearchParams(_params).toString();
       var r = await fetch('/search?' + qs);
       var data = await r.json();
+      setStatus(data.meta && data.meta.found ? 'Contacto encontrado (' + data.meta.searched_by + ')' : 'No encontrado');
       render(data);
     } catch (e) {
+      setStatus('Error al cargar datos');
       document.getElementById('app').innerHTML = '<div class="section"><div class="no-data">Error al cargar datos.</div></div>';
     } finally {
       _loading = false;
@@ -262,21 +268,49 @@ td { color: #333; }
     }
   }
 
-  // Chatwoot postMessage integration
+  function setStatus(msg) {
+    var el = document.getElementById('statusBar');
+    if (el) el.textContent = msg;
+  }
+
+  // Chatwoot postMessage integration — handles multiple Chatwoot versions
   window.addEventListener('message', function(event) {
     try {
-      var raw = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
-      var data = JSON.parse(raw);
-      if (!data) return;
+      var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      if (!data || typeof data !== 'object') return;
 
-      var sender = (data.meta && data.meta.sender) ? data.meta.sender : {};
+      var sender = {};
+      var convId = null;
+
+      // Format A: { meta: { sender: {...} }, id: 123 }  ← most common
+      if (data.meta && data.meta.sender) {
+        sender = data.meta.sender;
+        convId = data.id;
+      }
+      // Format B: { conversation: { meta: { sender: {...} }, id: 123 } }
+      else if (data.conversation && data.conversation.meta) {
+        sender = data.conversation.meta.sender || {};
+        convId = data.conversation.id;
+      }
+      // Format C: { contact: { email, phone_number, name }, id: 123 }
+      else if (data.contact) {
+        sender = data.contact;
+        convId = data.id;
+      }
+      // Nothing useful
+      else { return; }
+
       var p = {};
-      if (sender.email) p.email = sender.email;
+      if (sender.email)        p.email = sender.email;
       if (sender.phone_number) p.phone = sender.phone_number;
       if (sender.name && !p.email && !p.phone) p.name = sender.name;
-      if (data.id) p.conversation_id = data.id;
+      if (convId)              p.conversation_id = convId;
 
-      if (Object.keys(p).length) { _params = p; load(); }
+      if (!Object.keys(p).length) return;
+
+      setStatus('Buscando: ' + (p.email || p.phone || p.name || 'conv #' + p.conversation_id));
+      _params = p;
+      load();
     } catch (_) {}
   });
 </script>
