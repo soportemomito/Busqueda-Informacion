@@ -85,7 +85,11 @@ export async function getConversationMessages(conversation_id) {
     const { data } = await http.get(
       `/api/v1/accounts/${accountId}/conversations/${conversation_id}/messages`
     );
-    return (data?.payload || []).map(m => ({
+    // Chatwoot v3+ returns { payload: [...] } but some builds nest it as
+    // { payload: { meta: {}, payload: [...] } } — handle both.
+    const raw = data?.payload;
+    const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.payload) ? raw.payload : []);
+    return list.map(m => ({
       content: m.content || '',
       message_type: m.message_type,
       sender_type: m.sender_type,
