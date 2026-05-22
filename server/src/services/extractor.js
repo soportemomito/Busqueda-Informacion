@@ -11,7 +11,7 @@ const PATTERNS = [
   },
   {
     type: 'boleta',
-    re: /\b(?:boleta|factura|n[°º]?\.?\s*)(\d{4,8})\b/gi,
+    re: /\b(?:boleta|factura)\s*(?:n[°º]?\.?\s*|n[uú]mero\s*)?(\d{4,8})\b/gi,
     normalize: (_, g1) => g1.replace(/\D/g, ''),
   },
   {
