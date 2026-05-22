@@ -117,21 +117,31 @@ class EnrichmentContext {
   }
 
   toResult() {
+    // Normalize contact fields: prefer Chatwoot data, fall back to identifier pools
+    let contact = null;
+    if (this.chatwootContact) {
+      contact = {
+        chatwoot_contact_id: this.chatwootContact.chatwoot_contact_id,
+        name:  this.chatwootContact.name  || [...this.names][0]  || null,
+        email: this.chatwootContact.email || [...this.emails][0] || null,
+        phone: this.chatwootContact.phone_whatsapp || [...this.phones][0] || null,
+      };
+    }
     return {
-      contact:           this.chatwootContact,
-      conversations:     this.chatwootConversations,
-      devices:           [...this.devices.values()],
-      shopify_orders:    [...this.shopifyOrders.values()],
-      bsale_documents:   [...this.bsaleDocs.values()],
-      service_orders:    [...this.serviceOrders.values()],
+      contact,
+      conversations:   this.chatwootConversations,
+      devices:         [...this.devices.values()],
+      shopify_orders:  [...this.shopifyOrders.values()],
+      bsale_documents: [...this.bsaleDocs.values()],
+      service_orders:  [...this.serviceOrders.values()],
       identifiers: {
-        emails:               [...this.emails],
-        phones:               [...this.phones],
-        imeis:                [...this.imeis],
-        sim_ids:              [...this.simIds],
-        shopify_order_names:  [...this.shopifyOrderNames],
-        boleta_numbers:       [...this.boletaNumbers],
-        service_order_numbers:[...this.serviceOrderNumbers],
+        emails:                [...this.emails],
+        phones:                [...this.phones],
+        imeis:                 [...this.imeis],
+        sim_ids:               [...this.simIds],
+        shopify_order_names:   [...this.shopifyOrderNames],
+        boleta_numbers:        [...this.boletaNumbers],
+        service_order_numbers: [...this.serviceOrderNumbers],
       },
     };
   }

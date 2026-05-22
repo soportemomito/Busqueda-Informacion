@@ -75,6 +75,13 @@ td { color: #333; }
 .b-pending_payment { background: #fde8d0; color: #7d3e00; }
 .b-refunded { background: #f8d7da; color: #721c24; }
 .b-default { background: #e2e3e5; color: #444; }
+
+/* Action link buttons */
+.btn-link { display: inline-block; padding: 2px 8px; background: #1a1a2e; color: #fff; border-radius: 3px; font-size: 10px; text-decoration: none; white-space: nowrap; }
+.btn-link:hover { background: #2e2e5e; }
+.btn-copy { background: none; border: 1px solid #ccc; color: #666; padding: 1px 6px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+.btn-copy:hover { border-color: #1a1a2e; color: #1a1a2e; }
+.sec-count { font-weight: 400; color: #999; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -195,7 +202,8 @@ td { color: #333; }
     // Dispositivos
     if (data.devices && data.devices.length) {
       var rows = data.devices.map(function(d) {
-        return '<tr><td>'+fmt(d.imei)+'</td><td>'+fmt(d.sim_id)+'</td><td>'+fmt(d.brand)+' '+fmt(d.model)+'</td></tr>';
+        var copyImei = d.imei ? '<button class="btn-copy" onclick="copyText(\''+d.imei+'\',this)">Copiar</button>' : '';
+        return '<tr><td>'+fmt(d.imei)+' '+copyImei+'</td><td>'+fmt(d.sim_id)+'</td><td>'+fmt(d.brand)+' '+fmt(d.model)+'</td></tr>';
       }).join('');
       html += sec('Dispositivos','<table><thead><tr><th>IMEI</th><th>SIM ID</th><th>Equipo</th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
@@ -205,9 +213,12 @@ td { color: #333; }
     // Conversaciones
     if (data.conversations && data.conversations.length) {
       var rows = data.conversations.map(function(c) {
-        return '<tr><td>'+fmt(c.channel_type)+'</td><td>'+badge(c.status)+'</td><td>'+fmtDate(c.chatwoot_created_at)+'</td><td>'+fmt(c.assignee_name)+'</td></tr>';
+        var link = (typeof CW_URL !== 'undefined' && CW_URL && typeof CW_ACCOUNT !== 'undefined' && CW_ACCOUNT)
+          ? '<a class="btn-link" href="'+CW_URL+'/app/accounts/'+CW_ACCOUNT+'/conversations/'+c.chatwoot_conversation_id+'" target="_blank">Abrir</a>'
+          : '#'+fmt(c.chatwoot_conversation_id);
+        return '<tr><td>'+fmt(c.channel_type)+'</td><td>'+badge(c.status)+'</td><td>'+fmtDate(c.chatwoot_created_at)+'</td><td>'+link+'</td></tr>';
       }).join('');
-      html += sec('Conversaciones','<table><thead><tr><th>Canal</th><th>Estado</th><th>Fecha</th><th>Asignado</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Conversaciones <span class="sec-count">('+data.conversations.length+')</span>','<table><thead><tr><th>Canal</th><th>Estado</th><th>Fecha</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Conversaciones', noData());
     }
@@ -217,7 +228,7 @@ td { color: #333; }
       var rows = data.bsale_documents.map(function(d) {
         return '<tr><td>'+fmt(d.document_number)+'</td><td>'+fmt(d.document_type)+'</td><td>'+fmtMoney(d.total_amount)+'</td><td>'+fmtDate(d.issued_at)+'</td></tr>';
       }).join('');
-      html += sec('Boletas Bsale','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Boletas Bsale <span class="sec-count">('+data.bsale_documents.length+')</span>','<table><thead><tr><th>N°</th><th>Tipo</th><th>Total</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Boletas Bsale', noData());
     }
@@ -225,9 +236,12 @@ td { color: #333; }
     // Pedidos Shopify
     if (data.shopify_orders && data.shopify_orders.length) {
       var rows = data.shopify_orders.map(function(o) {
-        return '<tr><td>'+fmt(o.order_name)+'</td><td>'+badge(o.status)+'</td><td>'+badge(o.financial_status)+'</td><td>'+fmtMoney(o.total_price)+'</td></tr>';
+        var link = (typeof SHOPIFY_URL !== 'undefined' && SHOPIFY_URL)
+          ? '<a class="btn-link" href="'+SHOPIFY_URL+'/admin/orders?name='+encodeURIComponent(o.order_name)+'" target="_blank">Ver</a>'
+          : '';
+        return '<tr><td>'+fmt(o.order_name)+'</td><td>'+badge(o.financial_status)+'</td><td>'+fmtMoney(o.total_price)+'</td><td>'+link+'</td></tr>';
       }).join('');
-      html += sec('Pedidos Shopify','<table><thead><tr><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Pedidos Shopify <span class="sec-count">('+data.shopify_orders.length+')</span>','<table><thead><tr><th>Orden</th><th>Pago</th><th>Total</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Pedidos Shopify', noData());
     }
@@ -237,7 +251,7 @@ td { color: #333; }
       var rows = data.service_orders.map(function(o) {
         return '<tr><td>'+fmt(o.order_number)+'</td><td>'+badge(o.status)+'</td><td>'+fmt(o.technician)+'</td><td>'+fmtDate(o.received_at)+'</td></tr>';
       }).join('');
-      html += sec('Órdenes de Servicio','<table><thead><tr><th>N°</th><th>Estado</th><th>Técnico</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
+      html += sec('Órdenes de Servicio <span class="sec-count">('+data.service_orders.length+')</span>','<table><thead><tr><th>N°</th><th>Estado</th><th>Técnico</th><th>Fecha</th></tr></thead><tbody>'+rows+'</tbody></table>');
     } else {
       html += sec('Órdenes de Servicio', noData());
     }
@@ -266,6 +280,14 @@ td { color: #333; }
       btn.textContent = 'Error';
       btn.disabled = false;
     }
+  }
+
+  function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = '✓';
+      setTimeout(function() { btn.textContent = orig; }, 1500);
+    }).catch(function() {});
   }
 
   function setStatus(msg) {
@@ -313,6 +335,8 @@ td { color: #333; }
 
       if (!Object.keys(p).length) return;
 
+      // Always cancel any in-progress search when a new conversation arrives
+      _loading = false;
       setStatus('Buscando: ' + (p.email || p.phone || p.name || 'conv #' + p.conversation_id));
       _params = p;
       load();
