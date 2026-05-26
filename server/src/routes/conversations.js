@@ -50,12 +50,10 @@ conversationsRouter.get('/:id/summary', async (req, res) => {
       orConditions.push(`contact_phone.eq."${summary.contact_phone}"`);
     }
     if (summary.extracted_imei?.length) {
-      orConditions.push(`extracted_imei.cs.{${summary.extracted_imei.join(',')}}`);
-      orConditions.push(`extracted_imei.cd.{${summary.extracted_imei.join(',')}}`); // overlap (&&) behavior in postgrest
+      orConditions.push(`extracted_imei.ov.{${summary.extracted_imei.join(',')}}`);
     }
     if (summary.extracted_sim?.length) {
-      orConditions.push(`extracted_sim.cs.{${summary.extracted_sim.join(',')}}`);
-      orConditions.push(`extracted_sim.cd.{${summary.extracted_sim.join(',')}}`);
+      orConditions.push(`extracted_sim.ov.{${summary.extracted_sim.join(',')}}`);
     }
 
     let relatedTickets = [];

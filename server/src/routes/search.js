@@ -527,14 +527,17 @@ searchRouter.get('/', async (req, res) => {
     }
 
     // 2. Por número de orden (ST o Shopify)
+    // rawQ solo se incluye si parece un identificador seguro (alfanumérico + separadores comunes)
+    // para evitar inyección de sintaxis PostgREST en el filtro OR.
+    const safeRawQ = /^[A-Za-z0-9#\-_]{2,30}$/.test(rawQ) ? rawQ : null;
     const stOrderNumbers = [...new Set([
       ...stOrders,
       ...(pivot.orderNumbers || []),
       ...(plan.type === 'orderNumber' ? [plan.shopifyNamesToTry, plan.orderNumber, plan.orderRaw].flat() : []),
       ...(plan.type === 'shortNumber' ? [plan.numberStr] : []),
-      rawQ
+      safeRawQ,
     ].filter(Boolean))];
-    
+
     stOrderNumbers.forEach(o => {
       orConditions.push(`order_number.eq.${o}`);
     });
@@ -591,7 +594,7 @@ searchRouter.get('/', async (req, res) => {
     }
   }
 
-  upsertDeviceFacts(supabase, allIdentifiers); // fire-and-forget, no bloquea respuesta
+  upsertDeviceFacts(supabase, allIdentifiers).catch((err) => console.error('[search] upsertDeviceFacts error:', err?.message)); // fire-and-forget, no bloquea respuesta
 
   const meta = {
     recentSt: computeRecentSt({

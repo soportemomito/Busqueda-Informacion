@@ -408,7 +408,7 @@ function mapDocument(doc) {
   const office = doc.office && typeof doc.office === 'object' ? doc.office : null;
   const docType = doc.document_type && typeof doc.document_type === 'object' ? doc.document_type : null;
   const docTypeName = (docType?.name || '').toLowerCase();
-  const isBoleta = docTypeName ? docTypeName.includes('boleta') : true;
+  const isBoleta = docTypeName ? docTypeName.includes('boleta') : false;
   const detailsRaw = doc.details;
   const detailsItems = Array.isArray(detailsRaw)
     ? detailsRaw

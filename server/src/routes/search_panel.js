@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/supabase.js';
 import { getContactFromConversation, getConversationMessages } from '../services/chatwoot_panel.js';
 import { runEnrichment } from '../services/enrichment.js';
+import { getDuplicateSignals } from '../db/signals.js';
 
 export const panelSearchRouter = Router();
 
@@ -57,9 +58,16 @@ panelSearchRouter.get('/', async (req, res) => {
       result.service_orders.length
     );
 
+    const chatwootConvIds = result.conversations
+      .map((c) => c.chatwoot_conversation_id)
+      .filter(Boolean);
+    const duplicateSignals = chatwootConvIds.length
+      ? await getDuplicateSignals(chatwootConvIds).catch(() => [])
+      : [];
+
     res.json({
       ...result,
-      duplicate_signals: [],
+      duplicate_signals: duplicateSignals,
       meta: { found },
     });
 

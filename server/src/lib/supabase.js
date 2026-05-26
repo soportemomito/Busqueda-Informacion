@@ -3,9 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+let _supabase = null;
+
 export function getSupabase() {
+  if (_supabase) return _supabase;
   if (!url || !key) return null;
-  return createClient(url, key);
+  _supabase = createClient(url, key);
+  return _supabase;
 }
 
 const IDENTIFIER_LABELS = new Set(['ID / IMEI', 'ICCID / SIM', 'Serial', 'RUT', 'Email', 'Teléfono', 'Pedido Shopify']);
@@ -48,12 +52,17 @@ export async function lookupRelatedByDevice(supabase, facts, excludeConversation
   const results = [];
   const seen = new Set();
 
-  for (const { label, value } of identifiers) {
-    const { data } = await supabase
-      .from('device_facts')
-      .select('conversation_id, contact_id, label, value')
-      .eq('label', label)
-      .eq('value', value);
+  const queryResults = await Promise.all(
+    identifiers.map(({ label, value }) =>
+      supabase
+        .from('device_facts')
+        .select('conversation_id, contact_id, label, value')
+        .eq('label', label)
+        .eq('value', value),
+    ),
+  );
+
+  for (const { data } of queryResults) {
     for (const row of data || []) {
       if (excludeSet.has(row.conversation_id)) continue;
       const k = `${row.conversation_id}:${row.label}:${row.value}`;

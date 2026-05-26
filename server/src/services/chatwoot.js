@@ -111,6 +111,20 @@ function messagePlainText(m) {
   return parts.filter(Boolean).join(' ');
 }
 
+/**
+ * Keeps only customer messages and internal agent notes.
+ * Excludes outgoing agent messages (message_type === 1) so identifiers
+ * written by the team (e.g. a RUT in a transfer notice) are never extracted.
+ */
+function filterRelevantMessages(msgs) {
+  return msgs.filter((m) => {
+    const type = m.message_type;
+    const isCustomer = type === 0 || type === '0' || type === 'incoming';
+    const isInternalNote = m.private === true || type === 2 || type === '2' || type === 'activity';
+    return isCustomer || isInternalNote;
+  });
+}
+
 function dedupeFactRows(rows) {
   const seen = new Set();
   const out = [];
@@ -273,7 +287,7 @@ export async function searchChatwoot(plan, creds) {
       if (conv.status === 'open' || conv.status === 'pending') openIds.add(conv.id);
       const msgs = await fetchConversationMessages(client, accountId, conv.id);
       messagesAnalyzed += msgs.length;
-      const chunk = msgs.map(messagePlainText).join('\n');
+      const chunk = filterRelevantMessages(msgs).map(messagePlainText).join('\n');
       for (const ord of extractStOrdersFromText(chunk)) stOrdersFromMessages.add(ord);
       for (const em of (chunk.match(EMAIL_IN_MSG_RE) || [])) emailsFromMessages.add(em.toLowerCase());
       for (const em of (chunk.match(EMAIL_SPACED_RE) || [])) emailsFromMessages.add(em.replace(/\s/g, '').toLowerCase());
@@ -400,13 +414,14 @@ export async function searchChatwoot(plan, creds) {
     let messagesAnalyzed = 0;
     const msgs = await fetchConversationMessages(client, accountId, finalConv.id);
     messagesAnalyzed += msgs.length;
-    const chunk = msgs.map(messagePlainText).join('\n');
+    const chunk = filterRelevantMessages(msgs).map(messagePlainText).join('\n');
     for (const ord of extractStOrdersFromText(chunk)) stOrdersFromMessages.add(ord);
     if (hasStLabel(finalConv.labels || [])) {
       const orderHits = chunk.match(new RegExp(ORDER_TOKEN_RE.source, 'gi')) || [];
       for (const ord of orderHits.map((x) => x.toUpperCase().replace(/\s/g, ''))) stOrdersFromMessages.add(ord);
     }
     for (const em of (chunk.match(EMAIL_IN_MSG_RE) || [])) emailsFromMessages.add(em.toLowerCase());
+    for (const em of (chunk.match(EMAIL_SPACED_RE) || [])) emailsFromMessages.add(em.replace(/\s/g, '').toLowerCase());
     for (const ord of (chunk.match(SHOPIFY_ORDER_IN_MSG_RE) || [])) shopifyOrdersFromMessages.add(ord.toUpperCase());
     const facts = extractDeviceFactsFromText(chunk);
     if (facts.length) convDeviceFacts.set(finalConv.id, dedupeFactRows(facts));
@@ -598,7 +613,7 @@ export async function searchChatwoot(plan, creds) {
   for (const conv of forMessages.slice(0, maxConvForMessages)) {
     const msgs = await fetchConversationMessages(client, accountId, conv.id);
     messagesAnalyzed += msgs.length;
-    const chunk = msgs.map(messagePlainText).join('\n');
+    const chunk = filterRelevantMessages(msgs).map(messagePlainText).join('\n');
     for (const ord of extractStOrdersFromText(chunk)) stOrdersFromMessages.add(ord);
     if (hasStLabel(conv.labels || [])) {
       const orderHits = chunk.match(new RegExp(ORDER_TOKEN_RE.source, 'gi')) || [];

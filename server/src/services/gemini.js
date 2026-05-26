@@ -23,28 +23,43 @@ export async function generateGeminiSummaryAndFacts(messages, contactName, confi
     };
   }
 
-  // 1. Formatear la conversación como una transcripción limpia
+  // 1. Formatear la conversación como una transcripción limpia.
+  // Solo se incluyen mensajes del cliente (entrantes) y notas internas del equipo.
+  // Los mensajes salientes del agente se excluyen del transcript para evitar que
+  // datos de soporte (RUTs de transferencia, etc.) se extraigan como datos del cliente.
   const transcript = messages
+    .filter((m) => {
+      const type = m.message_type;
+      const isCustomer = type === 0 || type === '0' || type === 'incoming';
+      const isInternalNote = m.private === true || type === 2 || type === '2' || type === 'activity';
+      return isCustomer || isInternalNote;
+    })
     .map((m) => {
-      const role = m.sender_type === 'Contact' || m.message_type === 'incoming' ? 'Cliente' : 'Soporte';
+      const type = m.message_type;
+      const isInternalNote = m.private === true || type === 2 || type === '2' || type === 'activity';
+      const role = isInternalNote ? 'Nota Interna' : 'Cliente';
       const content = m.content || '';
       return `${role}: ${content}`;
     })
     .join('\n');
 
   // 2. Definir el prompt del sistema y la tarea
-  const prompt = `Analiza la siguiente transcripción de soporte técnico de SoyMomo. 
+  const prompt = `Analiza la siguiente transcripción de soporte técnico de SoyMomo.
 SoyMomo vende productos tecnológicos infantiles como relojes inteligentes con GPS (SoyMomo Original, Space, Space Lite, H2O), tablets para niños (Momo Tablet) y cámaras de bebé.
+
+La transcripción contiene líneas de "Cliente:" (mensajes del cliente) y "Nota Interna:" (anotaciones del equipo de soporte sobre el caso).
 
 Tu tarea es:
 1. Generar un resumen breve y conciso de la conversación (máximo 2-3 oraciones), en español, que describa el problema reportado por el cliente y el estado/solución alcanzado.
-2. Identificar el nombre del contacto (si lo mencionan en el chat de forma diferente a "${contactName || 'desconocido'}").
-3. Identificar el correo electrónico del cliente mencionado en los mensajes.
-4. Identificar el teléfono o número de WhatsApp mencionado.
-5. Extraer cualquier IMEI (número de 15 dígitos) o ID del equipo mencionado.
+2. Identificar el nombre del contacto CLIENTE (si lo mencionan en el chat de forma diferente a "${contactName || 'desconocido'}"). Solo extrae nombres de líneas "Cliente:" o "Nota Interna:" que se refieran al cliente.
+3. Identificar el correo electrónico DEL CLIENTE mencionado en líneas "Cliente:" o en "Nota Interna:" que hablen del cliente.
+4. Identificar el teléfono o número de WhatsApp DEL CLIENTE mencionado.
+5. Extraer cualquier IMEI (número de 15 dígitos) o ID del equipo DEL CLIENTE mencionado.
 6. Extraer cualquier número de SIM / ICCID mencionado (números largos de 19 o 20 dígitos).
-7. Extraer cualquier número de pedido de Shopify (usualmente empieza con letras y número, ej: SM#12345 o SM12345).
-8. Extraer cualquier folio de servicio técnico / orden de servicio ST (ej: formato P-1234, P1234, E1234 o similar).
+7. Extraer cualquier número de pedido de Shopify del cliente (usualmente empieza con letras y número, ej: SM#12345 o SM12345).
+8. Extraer cualquier folio de servicio técnico / orden de servicio ST del cliente (ej: formato P-1234, P1234, E1234 o similar).
+
+IMPORTANTE: Extrae únicamente datos que pertenezcan al CLIENTE, no datos internos del equipo de soporte.
 
 Transcripción del Chat:
 """

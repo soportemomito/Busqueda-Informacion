@@ -149,18 +149,21 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const currentSt = new Set(existing?.extracted_st_tickets || []);
         const currentShopify = new Set(existing?.extracted_shopify_orders || []);
 
-        // Extraer nuevos de este mensaje
-        const facts = extractDeviceFactsFromText(content);
-        for (const f of facts) {
-          if (f.label === 'ID / IMEI') currentImeis.add(f.value);
-          if (f.label === 'ICCID / SIM') currentSims.add(f.value);
+        // Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
+        const isOutgoing = messageType === '1' || messageType === 'outgoing';
+        if (!isOutgoing) {
+          const facts = extractDeviceFactsFromText(content);
+          for (const f of facts) {
+            if (f.label === 'ID / IMEI') currentImeis.add(f.value);
+            if (f.label === 'ICCID / SIM') currentSims.add(f.value);
+          }
+
+          const newSt = extractStOrdersFromText(content);
+          for (const st of newSt) currentSt.add(st);
+
+          const newShopify = (content.match(SHOPIFY_ORDER_IN_MSG_RE) || []).map(o => o.toUpperCase());
+          for (const sm of newShopify) currentShopify.add(sm);
         }
-
-        const newSt = extractStOrdersFromText(content);
-        for (const st of newSt) currentSt.add(st);
-
-        const newShopify = (content.match(SHOPIFY_ORDER_IN_MSG_RE) || []).map(o => o.toUpperCase());
-        for (const sm of newShopify) currentShopify.add(sm);
 
         // Guardar resumen consolidado
         await supabase.from('conversation_summaries').upsert({

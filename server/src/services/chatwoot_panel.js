@@ -93,6 +93,7 @@ export async function getConversationMessages(conversation_id) {
       content: m.content || '',
       message_type: m.message_type,
       sender_type: m.sender_type,
+      private: m.private ?? false,
     }));
   } catch {
     return [];

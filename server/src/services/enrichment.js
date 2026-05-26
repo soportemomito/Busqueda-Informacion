@@ -393,13 +393,16 @@ export async function runEnrichment(seed, db) {
   if (seed.boleta)        ctx.addBoleta(seed.boleta);
   if (seed.service_order) ctx.addServiceOrder(seed.service_order);
 
-  // Only extract identifiers from customer messages.
-  // message_type 0 = incoming; sender_type 'contact' = customer — check both
-  // because WhatsApp/WA Business channels sometimes differ in how they report message_type.
+  // Only extract identifiers from customer messages or our internal notes (exclude outgoing agent messages).
+  // message_type 0 = incoming; sender_type 'contact' = customer
+  // message_type 2 / 'activity' or private = internal notes (where agents write customer details)
   for (const m of seed.messages || []) {
-    const isCustomer = m.message_type === 0 || m.message_type === 'incoming'
+    const isCustomer = m.message_type === 0 || m.message_type === 'incoming' || m.message_type === '0'
       || m.sender_type === 'contact';
-    if (isCustomer) ctx.addFromText(m.content);
+    const isInternalNote = m.private === true || m.message_type === 2 || m.message_type === '2' || m.message_type === 'activity';
+    if (isCustomer || isInternalNote) {
+      ctx.addFromText(m.content);
+    }
   }
 
   // Seed pre-fetched Chatwoot contact (skip Chatwoot text search for this)
