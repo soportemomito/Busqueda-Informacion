@@ -390,8 +390,8 @@ searchRouter.get('/', async (req, res) => {
   // === ENRIQUECIMIENTO CRUZADO ===
   // Después del primer wave, si alguna plataforma quedó vacía,
   // buscamos con emails/pedidos extraídos de las otras.
+  const pivot = buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock);
   {
-    const pivot = buildEnrichmentPivot(chatwootBlock, bsaleBlock, shopifyBlock);
 
     const cwEmpty = chatwootBlock.status === 'ok' && (chatwootBlock.data?.contactCount ?? 0) === 0;
     const bsEmpty = bsaleBlock.status === 'ok' && (bsaleBlock.data?.items?.length ?? 0) === 0;
