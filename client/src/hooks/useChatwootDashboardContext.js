@@ -69,7 +69,14 @@ export function useChatwootDashboardContext() {
 
     // Escuchar TODOS los mensajes — logear todo lo que venga del frame padre
     function onMessage(event) {
-      const d = event?.data;
+      let d = event?.data;
+      if (typeof d === 'string') {
+        try {
+          d = JSON.parse(d);
+        } catch (_) {
+          // ignore parsing error
+        }
+      }
 
       // Detectar si el mensaje viene del padre (funciona cross-origin)
       let fromParent = false;
