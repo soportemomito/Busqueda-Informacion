@@ -517,6 +517,30 @@ searchRouter.get('/', async (req, res) => {
   const currentConvIds = [...new Set(allIdentifiers.map((f) => f.conversationId).filter(Boolean))];
   const relatedByDevice = await lookupRelatedByDevice(supabase, allIdentifiers, currentConvIds);
   const similarTickets = groupSimilarTickets(relatedByDevice);
+
+  // Enriquecer similarTickets con resúmenes de IA, nombres de contacto y fechas desde la tabla conversation_summaries
+  if (supabase && similarTickets.length > 0) {
+    const similarConvIds = similarTickets.map((t) => t.conversationId);
+    try {
+      const { data: summaries } = await supabase
+        .from('conversation_summaries')
+        .select('conversation_id, ai_summary, contact_name, updated_at')
+        .in('conversation_id', similarConvIds);
+
+      const summaryMap = new Map(summaries?.map((s) => [s.conversation_id, s]) || []);
+      for (const t of similarTickets) {
+        const sum = summaryMap.get(t.conversationId);
+        if (sum) {
+          t.aiSummary = sum.ai_summary || null;
+          t.contactName = sum.contact_name || null;
+          t.updatedAt = sum.updated_at || null;
+        }
+      }
+    } catch (e) {
+      console.error('Error enriqueciendo similarTickets con resúmenes Supabase:', e.message);
+    }
+  }
+
   upsertDeviceFacts(supabase, allIdentifiers); // fire-and-forget, no bloquea respuesta
 
   const meta = {

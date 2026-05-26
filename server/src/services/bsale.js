@@ -95,31 +95,23 @@ async function resolveAllEmailsForClient(http, c) {
  * Si GET clients?email= no devuelve nada, el correo puede estar solo en contactos.
  * Recorre páginas de clientes con expand=contacts (tope de páginas para no saturar la API).
  */
-async function findClientIdsByEmailIncludingContacts(http, emailNorm, { maxPages = 12 } = {}) {
+async function findClientIdsByEmailIncludingContacts(http, emailNorm) {
   const ids = new Set();
-  const limit = 50;
-  for (let page = 0; page < maxPages; page++) {
-    const offset = page * limit;
-    let data;
-    try {
-      const res = await http.get('/v1/clients.json', {
-        params: {
-          limit,
-          offset,
-          expand: '[contacts]',
-        },
-      });
-      data = res.data;
-    } catch {
-      break;
-    }
-    const items = data?.items || [];
-    if (!items.length) break;
+  try {
+    const res = await http.get('/v1/contacts.json', {
+      params: {
+        email: emailNorm,
+        limit: 50,
+      },
+    });
+    const items = res.data?.items || [];
     for (const c of items) {
-      const emails = await resolveAllEmailsForClient(http, c);
-      if (emails.has(emailNorm)) ids.add(c.id);
+      if (c.client && c.client.id) {
+        ids.add(c.client.id);
+      }
     }
-    if (items.length < limit) break;
+  } catch (e) {
+    console.error('Error al buscar contactos en Bsale:', e.message);
   }
   return [...ids];
 }
@@ -313,6 +305,51 @@ export async function searchBsale(plan, creds) {
 
   const documents = [];
   const docErrors = [];
+  const seenDocIds = new Set();
+
+  // Búsqueda directa por folio/número de documento si es un número corto, de orden o dígitos
+  if (plan.type === 'shortNumber' || plan.type === 'orderNumber' || /^\d+$/.test(q)) {
+    const docNumber = plan.type === 'shortNumber' ? plan.numberStr : q.replace(/\D/g, '');
+    if (docNumber) {
+      try {
+        const { data } = await http.get('/v1/documents.json', {
+          params: {
+            number: docNumber,
+            limit: 10,
+            expand: '[office,document_type,details,payments]',
+          },
+        });
+        const items = data?.items || [];
+        for (const doc of items) {
+          const dt = doc.document_type;
+          const dtName = (dt?.name || '').toLowerCase();
+          if (!dtName || dtName.includes('boleta')) {
+            const enriched = await loadDocumentDetailsIfNeeded(http, doc);
+            const mapped = mapDocument(enriched);
+            let clientId = null;
+            if (doc.client && doc.client.id) {
+              clientId = doc.client.id;
+              clientIds.add(clientId);
+              if (!clientRecords.has(clientId)) {
+                try {
+                  const { data: clData } = await http.get(`/v1/clients/${clientId}.json`);
+                  if (clData) clientRecords.set(clientId, clData);
+                } catch {
+                  clientRecords.set(clientId, { id: clientId });
+                }
+              }
+            }
+            if (mapped.id) {
+              seenDocIds.add(mapped.id);
+              documents.push({ ...mapped, clientId });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error al buscar boletas por número directo en Bsale:', e.message);
+      }
+    }
+  }
 
   for (const clientId of [...clientIds].slice(0, 25)) {
     const { items, error } = await fetchDocumentsForClient(http, clientId);
@@ -333,6 +370,8 @@ export async function searchBsale(plan, creds) {
     const top3 = candidates.slice(0, 3);
 
     for (const doc of top3) {
+      if (seenDocIds.has(doc.id)) continue;
+      seenDocIds.add(doc.id);
       const enriched = await loadDocumentDetailsIfNeeded(http, doc);
       const mapped = mapDocument(enriched);
       if (mapped.isBoleta) documents.push({ ...mapped, clientId });

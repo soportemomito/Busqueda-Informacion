@@ -19,7 +19,7 @@ function formatIso(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return String(iso);
-  return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function chatwootConversationUrl(app, conversationId) {
@@ -55,16 +55,49 @@ function driveEmbedPreviewUrl(file) {
   return null;
 }
 
-async function copyText(text) {
-  const t = String(text || '');
+async function copyText(text, onCopied) {
+  const t = String(text || '').trim();
   if (!t) return;
-  try { await navigator.clipboard.writeText(t); } catch { window.prompt('Copiar:', t); }
+  try {
+    await navigator.clipboard.writeText(t);
+    if (onCopied) onCopied(t);
+  } catch {
+    window.prompt('Copiar:', t);
+  }
 }
 
 function statusBadge(status, isOpen) {
-  if (isOpen) return { label: 'Abierto', cls: 'bg-emerald-100 text-emerald-800' };
-  if (status === 'pending') return { label: 'Pendiente', cls: 'bg-amber-100 text-amber-800' };
-  return { label: 'Resuelto', cls: 'bg-slate-100 text-slate-600' };
+  if (isOpen) return { label: 'Abierto', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
+  if (status === 'pending') return { label: 'Pendiente', cls: 'bg-amber-100 text-amber-800 border-amber-200' };
+  return { label: 'Resuelto', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+}
+
+// ─── native chatwoot actions ──────────────────────────────────────────────────
+
+async function postPrivateNote(convId, noteText) {
+  const res = await fetch(`/api/chatwoot/conversations/${convId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: noteText }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'No se pudo enviar la nota interna');
+  }
+  return res.json();
+}
+
+async function postConversationLabels(convId, labelsList) {
+  const res = await fetch(`/api/chatwoot/conversations/${convId}/labels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ labels: labelsList }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'No se pudieron actualizar las etiquetas');
+  }
+  return res.json();
 }
 
 // ─── source status strip ───────────────────────────────────────────────────────
@@ -102,12 +135,12 @@ function deriveSourceStatuses(data, meta) {
 function SourceStatusBar({ data, meta }) {
   if (!data || !meta) return null;
   const items = deriveSourceStatuses(data, meta);
-  const dot = { ok: 'bg-emerald-500', error: 'bg-red-500', warn: 'bg-amber-400', skip: 'bg-slate-300' };
-  const pill = { ok: 'border-emerald-200 text-emerald-800', error: 'border-red-200 text-red-700', warn: 'border-amber-200 text-amber-800', skip: 'border-slate-200 text-slate-400' };
+  const dot = { ok: 'bg-emerald-500 shadow-sm shadow-emerald-400/50', error: 'bg-red-500 shadow-sm shadow-red-400/50', warn: 'bg-amber-400 shadow-sm shadow-amber-400/50', skip: 'bg-slate-300' };
+  const pill = { ok: 'border-emerald-100 bg-emerald-50/50 text-emerald-800', error: 'border-red-100 bg-red-50/50 text-red-700', warn: 'border-amber-100 bg-amber-50/50 text-amber-800', skip: 'border-slate-100 bg-slate-50/50 text-slate-400' };
   return (
-    <div className="flex flex-wrap gap-1.5 mb-4">
+    <div className="flex flex-wrap gap-1.5 mb-4 animate-fade-in">
       {items.map((it) => (
-        <span key={it.id} title={it.title} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${pill[it.tone]}`}>
+        <span key={it.id} title={it.title} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all hover:scale-105 duration-200 cursor-default ${pill[it.tone]}`}>
           <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dot[it.tone]}`} />
           {it.label}
         </span>
@@ -116,9 +149,43 @@ function SourceStatusBar({ data, meta }) {
   );
 }
 
+// ─── copy animation chip ─────────────────────────────────────────────────────
+
+function CopyableValue({ value, children }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    copyText(value, () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <span className="inline-flex items-center gap-1.5 group relative">
+      <span className="text-slate-900 break-all">{children || value}</span>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={`shrink-0 p-1 rounded-md transition-all ${
+          copied 
+            ? 'bg-emerald-100 text-emerald-700 scale-110' 
+            : 'text-slate-300 hover:text-momo-600 hover:bg-momo-50'
+        }`}
+        title={copied ? '¡Copiado!' : 'Copiar'}
+      >
+        {copied ? (
+          <span className="text-[10px] font-bold px-0.5">✓</span>
+        ) : (
+          <span className="text-xs">⧉</span>
+        )}
+      </button>
+    </span>
+  );
+}
+
 // ─── profile card ─────────────────────────────────────────────────────────────
 
-function ProfileCard({ meta, bsBlock, cwBlock }) {
+function ProfileCard({ meta, bsBlock, cwBlock, conversationId }) {
   const cs = meta?.contactSummary;
   const facts = meta?.equipmentFacts || [];
 
@@ -140,26 +207,54 @@ function ProfileCard({ meta, bsBlock, cwBlock }) {
   const sim = facts.find((f) => f.label === 'ICCID / SIM')?.value;
   if (sim) rows.push({ icon: '💳', label: 'N° SIM', value: sim, copy: true });
 
+  const [sendingNote, setSendingNote] = useState(false);
+  const handleSendNote = async () => {
+    if (!conversationId) return;
+    setSendingNote(true);
+    let md = `### 📋 Datos ST Consolidados del Cliente\n\n`;
+    rows.forEach(r => {
+      md += `* **${r.label}:** ${r.value}\n`;
+    });
+    md += `\n*Ficha enviada automáticamente desde el panel ST.*`;
+    try {
+      await postPrivateNote(conversationId, md);
+      alert('✅ Ficha enviada como nota interna correctamente!');
+    } catch (err) {
+      alert(`❌ Error al enviar nota: ${err.message}`);
+    } finally {
+      setSendingNote(false);
+    }
+  };
+
   if (!rows.length) return null;
 
   return (
-    <div className="mb-4 rounded-xl border border-momo-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-4 py-2.5 bg-gradient-to-r from-momo-600 to-momo-500 flex items-center gap-2">
-        <span className="text-white font-bold text-sm">Perfil del cliente</span>
+    <div className="mb-4 rounded-2xl border border-momo-100 bg-white/90 backdrop-blur-md shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md animate-fade-in">
+      <div className="px-4 py-3 bg-gradient-to-r from-momo-700 to-momo-500 flex items-center justify-between gap-2">
+        <span className="text-white font-semibold text-sm tracking-wide">Perfil del cliente</span>
+        {conversationId && (
+          <button
+            type="button"
+            disabled={sendingNote}
+            onClick={handleSendNote}
+            className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-semibold rounded-lg px-2.5 py-1 transition-all flex items-center gap-1 disabled:opacity-50"
+          >
+            <span>📝</span> {sendingNote ? 'Enviando...' : 'Enviar Nota Interna'}
+          </button>
+        )}
       </div>
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-slate-100/80">
         {rows.map((r) => (
-          <div key={r.label} className="flex items-center gap-3 px-4 py-2.5">
+          <div key={r.label} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
             <span className="text-base shrink-0 w-6 text-center">{r.icon}</span>
-            <span className="text-xs font-semibold text-slate-500 w-20 shrink-0">{r.label}</span>
-            <span className="text-sm text-slate-900 flex-1 break-all">
+            <span className="text-xs font-semibold text-slate-400 w-20 shrink-0 uppercase tracking-wider">{r.label}</span>
+            <span className="text-sm text-slate-900 flex-1 break-all font-medium">
               {r.link ? (
-                <a href={r.link} target="_blank" rel="noreferrer" className="text-momo-700 underline font-medium">{r.value}</a>
+                <a href={r.link} target="_blank" rel="noreferrer" className="text-momo-600 hover:text-momo-800 underline font-semibold transition-colors">{r.value}</a>
+              ) : r.copy ? (
+                <CopyableValue value={r.value}>{r.value}</CopyableValue>
               ) : r.value}
             </span>
-            {r.copy && (
-              <button type="button" onClick={() => copyText(r.value)} className="text-slate-300 hover:text-momo-600 transition-colors shrink-0 text-sm" title="Copiar">⧉</button>
-            )}
           </div>
         ))}
       </div>
@@ -175,41 +270,41 @@ function SectionOpenTickets({ meta, onResolve, resolving, resolveError }) {
   const multiple = open.length > 1;
 
   return (
-    <div className={`mb-4 rounded-xl border overflow-hidden shadow-sm ${multiple ? 'border-orange-300' : 'border-emerald-200'}`}>
-      <div className={`px-4 py-2.5 flex items-center gap-2 ${multiple ? 'bg-orange-500' : 'bg-emerald-600'}`}>
+    <div className={`mb-4 rounded-2xl border overflow-hidden shadow-sm transition-all duration-300 ${multiple ? 'border-orange-200 bg-orange-50/20' : 'border-emerald-200 bg-emerald-50/20'}`}>
+      <div className={`px-4 py-3 flex items-center gap-2 ${multiple ? 'bg-orange-500' : 'bg-emerald-600'}`}>
         <span className="text-white font-bold text-sm">
-          {open.length === 1 ? 'Ticket abierto' : `${open.length} tickets abiertos`}
+          {open.length === 1 ? '🎟️ Ticket abierto' : `🎟️ ${open.length} tickets abiertos`}
         </span>
-        {multiple && <span className="text-orange-100 text-xs ml-1">— Posibles duplicados, verifica</span>}
+        {multiple && <span className="text-orange-100 text-xs ml-1 font-medium bg-orange-600/50 rounded px-1.5 py-0.5 animate-pulse">— Posibles duplicados, verifica</span>}
       </div>
       <div className="bg-white divide-y divide-slate-100">
         {open.map((oc) => {
           const url = chatwootConversationUrl(meta.chatwootApp, oc.conversationId);
           return (
-            <div key={oc.conversationId} className="px-4 py-3 flex flex-wrap items-center gap-3">
+            <div key={oc.conversationId} className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-slate-50/40 transition-colors">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-slate-800 text-sm">#{oc.ticketId}</span>
-                  <span className="text-xs text-slate-500">{oc.channel || '—'}</span>
+                  <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-md px-1.5 py-0.5">{oc.channel || '—'}</span>
                   <span className="text-xs text-slate-400">{formatIso(oc.date)}</span>
                 </div>
                 {oc.geminiSummary && (
-                  <p className="text-xs text-slate-600 mt-1 leading-relaxed line-clamp-2">{oc.geminiSummary}</p>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed line-clamp-2 bg-slate-50/80 rounded-lg p-2 border border-slate-100">{oc.geminiSummary}</p>
                 )}
-                {oc.agent && <p className="text-[11px] text-slate-400 mt-0.5">Agente: {oc.agent}</p>}
+                {oc.agent && <p className="text-[11px] text-slate-400 mt-1 font-medium">Agente asignado: <span className="text-slate-600 font-semibold">{oc.agent}</span></p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {url && (
                   <a href={url} target="_blank" rel="noreferrer"
-                    className="rounded-lg bg-momo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-momo-700 transition-colors">
-                    Ver
+                    className="rounded-xl bg-momo-600 text-white text-xs font-semibold px-3.5 py-2 hover:bg-momo-700 hover:shadow-md transition-all duration-200">
+                    Ver en Chatwoot
                   </a>
                 )}
                 {onResolve && (
                   <button type="button" disabled={resolving}
-                    onClick={() => { if (window.confirm(`¿Cerrar ticket #${oc.ticketId}?`)) onResolve(oc.conversationId); }}
-                    className="rounded-lg border border-slate-300 text-slate-700 text-xs font-medium px-3 py-1.5 hover:bg-red-50 hover:border-red-300 hover:text-red-700 disabled:opacity-50 transition-colors">
-                    Cerrar
+                    onClick={() => { if (window.confirm(`¿Marcar la conversación #${oc.ticketId} como resuelta?`)) onResolve(oc.conversationId); }}
+                    className="rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold px-3 py-2 hover:bg-red-50 hover:border-red-200 hover:text-red-600 disabled:opacity-50 transition-all duration-200">
+                    Marcar Resuelta
                   </button>
                 )}
               </div>
@@ -217,7 +312,7 @@ function SectionOpenTickets({ meta, onResolve, resolving, resolveError }) {
           );
         })}
       </div>
-      {resolveError && <p className="text-red-700 text-xs px-4 pb-3">{resolveError}</p>}
+      {resolveError && <p className="text-red-600 text-xs px-4 pb-3">{resolveError}</p>}
     </div>
   );
 }
@@ -230,38 +325,62 @@ function SectionSimilarTickets({ meta }) {
   const chatwootApp = meta?.chatwootApp;
 
   return (
-    <CollapsibleResultSection title="Tickets relacionados" badge={groups.length} defaultOpen>
-      {groups.map((g) => {
-        const url = chatwootConversationUrl(chatwootApp, g.conversationId);
-        return (
-          <div key={g.conversationId} className="px-4 py-3 flex flex-wrap items-start gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-slate-800 text-sm">Conversación #{g.conversationId}</span>
-                <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${g.confident ? 'bg-momo-100 text-momo-800' : 'bg-amber-100 text-amber-700'}`}>
-                  {g.matches.length} coincidencia{g.matches.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              {!g.confident && (
-                <p className="text-[11px] text-amber-600 mt-0.5 italic">Solo 1 similitud — puede no ser el mismo caso</p>
-              )}
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {g.matches.map((m, i) => (
-                  <span key={i} className="text-[11px] bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 font-medium">
-                    {m.label}: {m.value}
-                  </span>
-                ))}
+    <CollapsibleResultSection title="Tickets relacionados (Cruce inteligente)" badge={groups.length} defaultOpen>
+      <div className="divide-y divide-slate-100 bg-white">
+        {groups.map((g) => {
+          const url = chatwootConversationUrl(chatwootApp, g.conversationId);
+          return (
+            <div key={g.conversationId} className="px-4 py-3.5 hover:bg-slate-50/50 transition-all duration-200">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-slate-800 text-sm">Conversación #{g.conversationId}</span>
+                    <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 border ${
+                      g.confident 
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}>
+                      {g.matches.length} coincidencia{g.matches.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {!g.confident && (
+                    <p className="text-[10px] text-amber-600 mt-0.5 italic font-medium">Solo 1 coincidencia — verificar con cautela</p>
+                  )}
+                  
+                  {g.contactName && (
+                    <p className="text-xs font-semibold text-slate-700 mt-1">
+                      Cliente: <span className="text-slate-900 font-bold">{g.contactName}</span> {g.updatedAt && <span className="text-[10px] text-slate-400 font-normal">({formatIso(g.updatedAt)})</span>}
+                    </p>
+                  )}
+
+                  {g.aiSummary ? (
+                    <div className="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5">
+                      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Último resumen de chat</p>
+                      <p className="text-xs text-slate-700 leading-relaxed font-medium">{g.aiSummary}</p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 mt-1.5 italic font-medium">Sin resumen disponible para este ticket</p>
+                  )}
+
+                  <div className="flex flex-wrap gap-1 mt-2.5">
+                    {g.matches.map((m, i) => (
+                      <span key={i} className="text-[10px] bg-momo-50 border border-momo-100 text-momo-800 rounded-md px-2 py-0.5 font-medium transition-all hover:scale-105 duration-200 cursor-default">
+                        {m.label}: {m.value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {url && (
+                  <a href={url} target="_blank" rel="noreferrer"
+                    className="text-xs font-semibold text-momo-600 hover:text-momo-800 underline shrink-0 mt-0.5 transition-colors">
+                    Abrir Ticket →
+                  </a>
+                )}
               </div>
             </div>
-            {url && (
-              <a href={url} target="_blank" rel="noreferrer"
-                className="text-xs font-semibold text-momo-700 hover:text-momo-900 underline shrink-0 mt-0.5">
-                Abrir →
-              </a>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </CollapsibleResultSection>
   );
 }
@@ -272,8 +391,8 @@ function SectionBsale({ block, shopifyBlock }) {
   if (!block || block.status === 'error') {
     if (!block?.error) return null;
     return (
-      <CollapsibleResultSection title="Boletas" badge={0} error={block.error} defaultOpen={false}>
-        <p className="px-4 py-3 text-sm text-slate-400">Sin boletas</p>
+      <CollapsibleResultSection title="Boletas Bsale" badge={0} error={block.error} defaultOpen={false}>
+        <p className="px-4 py-3 text-sm text-slate-400 italic">Sin boletas</p>
       </CollapsibleResultSection>
     );
   }
@@ -297,67 +416,69 @@ function SectionBsale({ block, shopifyBlock }) {
     (shopifyBlock?.data?.orders?.length ?? 0) > 0;
 
   const nameNote = block.data?.nameWithoutEmailNote;
-  const subtitle = hasShopifyOrders ? 'También hay pedido en Shopify' : undefined;
+  const subtitle = hasShopifyOrders ? 'Cruzado: Tiene compras en Shopify' : undefined;
 
   return (
-    <CollapsibleResultSection title="Boletas" badge={items.length} subtitle={subtitle} defaultOpen>
+    <CollapsibleResultSection title="Boletas Bsale" badge={items.length} subtitle={subtitle} defaultOpen>
       {nameNote && (
-        <div className="mx-4 mt-3 mb-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-          {nameNote}
+        <div className="mx-4 mt-3 mb-1 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 font-medium">
+          ⚠️ {nameNote}
         </div>
       )}
-      {[...grouped.entries()].map(([clientKey, docs]) => {
-        const client = clientMap[clientKey];
-        const clientName = client?.name || null;
-        const showHeader = clientName && grouped.size > 1;
+      <div className="bg-white divide-y divide-slate-100">
+        {[...grouped.entries()].map(([clientKey, docs]) => {
+          const client = clientMap[clientKey];
+          const clientName = client?.name || null;
+          const showHeader = clientName && grouped.size > 1;
 
-        return (
-          <div key={clientKey}>
-            {showHeader && (
-              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
-                <p className="text-xs font-semibold text-slate-700">{clientName}</p>
-                {client.email && <p className="text-[11px] text-slate-400">{client.email}</p>}
-              </div>
-            )}
-            {docs.map((row) => (
-              <div key={`bsale-${row.id}`} className="px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-bold text-slate-800 text-sm">Boleta N° {row.number}</span>
-                      <span className="text-xs text-slate-500">{formatUnix(row.emissionDate)}</span>
-                      {row.total != null && (
-                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                          ${Number(row.total).toLocaleString('es-CL')}
-                        </span>
+          return (
+            <div key={clientKey}>
+              {showHeader && (
+                <div className="px-4 py-2 bg-slate-50/70 border-b border-slate-100 flex justify-between items-center">
+                  <p className="text-xs font-semibold text-slate-700">{clientName}</p>
+                  {client.email && <p className="text-[10px] text-slate-400 font-mono font-medium">{client.email}</p>}
+                </div>
+              )}
+              {docs.map((row) => (
+                <div key={`bsale-${row.id}`} className="px-4 py-3.5 hover:bg-slate-50/40 transition-colors">
+                  <div className="flex items-start gap-3 justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-bold text-slate-800 text-sm">Folio N° {row.number}</span>
+                        <span className="text-xs text-slate-400 font-medium">{formatUnix(row.emissionDate)}</span>
+                        {row.total != null && (
+                          <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-0.5">
+                            ${Number(row.total).toLocaleString('es-CL')}
+                          </span>
+                        )}
+                      </div>
+                      {row.items?.length > 0 && (
+                        <ul className="space-y-1 mt-1.5">
+                          {row.items.slice(0, 3).map((item, i) => (
+                            <li key={i} className="text-xs text-slate-600 flex gap-1.5 font-medium">
+                              <span className="text-slate-400 shrink-0 font-bold">{item.quantity}×</span>
+                              <span className="truncate">{item.description || '—'}</span>
+                            </li>
+                          ))}
+                          {row.items.length > 3 && (
+                            <li className="text-[10px] text-slate-400 font-bold">+{row.items.length - 3} producto{row.items.length - 3 !== 1 ? 's' : ''} más</li>
+                          )}
+                        </ul>
                       )}
                     </div>
-                    {row.items?.length > 0 && (
-                      <ul className="space-y-0.5">
-                        {row.items.slice(0, 3).map((item, i) => (
-                          <li key={i} className="text-xs text-slate-600 flex gap-1.5">
-                            <span className="text-slate-400 shrink-0 font-medium">{item.quantity}×</span>
-                            <span className="truncate">{item.description || '—'}</span>
-                          </li>
-                        ))}
-                        {row.items.length > 3 && (
-                          <li className="text-[11px] text-slate-400">+{row.items.length - 3} producto{row.items.length - 3 !== 1 ? 's' : ''} más</li>
-                        )}
-                      </ul>
+                    {row.urlPublicView && (
+                      <a href={row.urlPublicView} target="_blank" rel="noreferrer"
+                        className="rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 transition-all duration-200 shrink-0">
+                        Abrir PDF ↗
+                      </a>
                     )}
                   </div>
-                  {row.urlPublicView && (
-                    <a href={row.urlPublicView} target="_blank" rel="noreferrer"
-                      className="rounded-lg bg-slate-800 text-white text-xs font-semibold px-3 py-1.5 hover:bg-slate-700 transition-colors shrink-0">
-                      Ver boleta
-                    </a>
-                  )}
                 </div>
-              </div>
-            ))}
-          </div>
-        );
-      })}
+              ))}
+            </div>
+          );
+        })}
+      </div>
     </CollapsibleResultSection>
   );
 }
@@ -369,7 +490,7 @@ function SectionShopify({ block }) {
     if (!block?.error) return null;
     return (
       <CollapsibleResultSection title="Pedidos Shopify" badge={0} error={block.error} defaultOpen={false}>
-        <p className="px-4 py-3 text-sm text-slate-400">Sin pedidos</p>
+        <p className="px-4 py-3 text-sm text-slate-400 italic">Sin pedidos</p>
       </CollapsibleResultSection>
     );
   }
@@ -380,68 +501,69 @@ function SectionShopify({ block }) {
 
   const payLabel = (s) => {
     if (!s) return null;
-    const map = { paid: 'Pagado', pending: 'Pago pendiente', refunded: 'Reembolsado', partially_paid: 'Pago parcial', voided: 'Anulado' };
+    const map = { paid: '🟢 Pagado', pending: '🟡 Pago Pendiente', refunded: '🔵 Reembolsado', partially_paid: '🟠 Pago Parcial', voided: '🔴 Anulado' };
     return map[s] || s;
   };
   const fulfillLabel = (s) => {
     if (!s) return null;
-    const map = { fulfilled: 'Entregado', partial: 'Entrega parcial', unfulfilled: 'Sin enviar', restocked: 'Devuelto' };
+    const map = { fulfilled: '🔵 Entregado', partial: '🔵 Parcial', unfulfilled: '🟡 Sin enviar', restocked: '🔴 Devuelto' };
     return map[s] || s;
   };
 
   return (
     <CollapsibleResultSection title="Pedidos Shopify" badge={orders.length + customers.length} defaultOpen>
-      {orders.map((o) => (
-        <div key={o.id} className="px-4 py-3">
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-momo-700 text-lg tracking-tight">{o.name || `#${o.id}`}</span>
-                {payLabel(o.financialStatus) && (
-                  <span className="text-[11px] font-semibold rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5">
-                    {payLabel(o.financialStatus)}
-                  </span>
-                )}
-                {fulfillLabel(o.fulfillmentStatus) && (
-                  <span className="text-[11px] font-semibold rounded-full bg-blue-100 text-blue-800 px-2 py-0.5">
-                    {fulfillLabel(o.fulfillmentStatus)}
-                  </span>
-                )}
-                <button type="button" onClick={() => copyText(o.name || String(o.id))}
-                  className="text-slate-300 hover:text-momo-600 text-sm" title="Copiar N° pedido">⧉</button>
+      <div className="bg-white divide-y divide-slate-100">
+        {orders.map((o) => (
+          <div key={o.id} className="px-4 py-3.5 hover:bg-slate-50/40 transition-colors">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-momo-700 text-base tracking-tight">{o.name || `#${o.id}`}</span>
+                  {payLabel(o.financialStatus) && (
+                    <span className="text-[10px] font-bold rounded-md bg-slate-50 border border-slate-200 text-slate-600 px-1.5 py-0.5">
+                      {payLabel(o.financialStatus)}
+                    </span>
+                  )}
+                  {fulfillLabel(o.fulfillmentStatus) && (
+                    <span className="text-[10px] font-bold rounded-md bg-slate-50 border border-slate-200 text-slate-600 px-1.5 py-0.5">
+                      {fulfillLabel(o.fulfillmentStatus)}
+                    </span>
+                  )}
+                  <CopyableValue value={o.name || String(o.id)} />
+                </div>
+                <p className="text-xs text-slate-400 mt-1 font-semibold">
+                  {formatIso(o.createdAt)}{o.totalPrice ? ` · $${Number(o.totalPrice).toLocaleString('es-CL')} ${o.currency || ''}` : ''}
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                {formatIso(o.createdAt)}{o.totalPrice ? ` · $${Number(o.totalPrice).toLocaleString('es-CL')} ${o.currency || ''}` : ''}
-              </p>
-            </div>
-            <div className="flex flex-col gap-1.5 shrink-0">
-              {o.adminUrl && (
-                <a href={o.adminUrl} target="_blank" rel="noreferrer"
-                  className="rounded-lg bg-momo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-momo-700 transition-colors text-center">
-                  Ver pedido
-                </a>
-              )}
-              {o.adminOrdersSearchUrl && (
-                <a href={o.adminOrdersSearchUrl} target="_blank" rel="noreferrer"
-                  className="rounded-lg border border-momo-200 text-momo-700 text-xs font-medium px-3 py-1.5 hover:bg-momo-50 transition-colors text-center">
-                  Buscar en admin
-                </a>
-              )}
+              <div className="flex gap-1.5 shrink-0">
+                {o.adminUrl && (
+                  <a href={o.adminUrl} target="_blank" rel="noreferrer"
+                    className="rounded-xl bg-momo-600 text-white text-xs font-semibold px-3 py-2 hover:bg-momo-700 transition-all shadow-sm">
+                    Ver Pedido
+                  </a>
+                )}
+                {o.adminOrdersSearchUrl && (
+                  <a href={o.adminOrdersSearchUrl} target="_blank" rel="noreferrer"
+                    className="rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold px-3 py-2 hover:bg-slate-50 transition-all">
+                    Ver en Admin
+                  </a>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
-      {customers.length > 0 && (
-        <div className="px-4 py-3 border-t border-slate-100">
-          <p className="text-xs font-semibold text-slate-500 mb-2">Cliente en Shopify</p>
-          {customers.map((c) => (
-            <div key={c.id} className="text-sm text-slate-800">
-              <span className="font-medium">{[c.firstName, c.lastName].filter(Boolean).join(' ') || '—'}</span>
-              <span className="text-xs text-slate-500 ml-2">{c.email || ''} {c.phone ? `· ${c.phone}` : ''}</span>
-            </div>
-          ))}
-        </div>
-      )}
+        ))}
+        {customers.length > 0 && (
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cliente en Shopify</p>
+            {customers.map((c) => (
+              <div key={c.id} className="text-xs text-slate-700 font-semibold flex items-center justify-between">
+                <span>👤 {[c.firstName, c.lastName].filter(Boolean).join(' ') || '—'}</span>
+                <span className="text-[11px] text-slate-400 font-mono font-medium">{c.email || ''} {c.phone ? `· ${c.phone}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </CollapsibleResultSection>
   );
 }
@@ -453,34 +575,34 @@ function ConversationCard({ row, chatwootApp }) {
   const { label: statusLabel, cls: statusCls } = statusBadge(row.status, row.isOpen);
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-3.5 hover:bg-slate-50/30 transition-colors">
       {/* header */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-slate-800 text-sm">#{row.ticketId}</span>
-          <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${statusCls}`}>{statusLabel}</span>
+          <span className={`text-[10px] font-bold border rounded-md px-1.5 py-0.5 ${statusCls}`}>{statusLabel}</span>
           {row.stTagged && (
-            <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-momo-100 text-momo-700">Serv. Técnico</span>
+            <span className="text-[10px] font-bold border rounded-md px-1.5 py-0.5 bg-momo-50 border-momo-100 text-momo-800">Serv. Técnico</span>
           )}
         </div>
-        <span className="text-xs text-slate-400 shrink-0">{formatIso(row.date)}</span>
+        <span className="text-xs text-slate-400 shrink-0 font-medium">{formatIso(row.date)}</span>
       </div>
 
       {/* summary — main content */}
       {row.geminiSummary ? (
-        <div className="bg-momo-50 rounded-lg px-3 py-2.5 mb-2 border border-momo-100">
-          <p className="text-[10px] font-bold text-momo-600 uppercase tracking-wide mb-1">Resumen IA</p>
-          <p className="text-sm text-slate-800 leading-relaxed">{row.geminiSummary}</p>
+        <div className="bg-momo-50/60 rounded-xl px-3 py-2.5 mb-2.5 border border-momo-100/50">
+          <p className="text-[9px] font-bold text-momo-600 uppercase tracking-wider mb-0.5">Resumen de Chat IA</p>
+          <p className="text-xs text-slate-700 leading-relaxed font-medium">{row.geminiSummary}</p>
         </div>
       ) : (
-        <p className="text-xs text-slate-400 italic mb-2">Sin resumen disponible para este ticket</p>
+        <p className="text-xs text-slate-400 italic mb-2.5 font-medium">Sin resumen disponible para este ticket</p>
       )}
 
       {/* device facts */}
       {row.deviceFacts?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
+        <div className="flex flex-wrap gap-1 mb-2.5">
           {row.deviceFacts.map((f, i) => (
-            <span key={i} className="text-[11px] bg-slate-100 text-slate-700 rounded-full px-2 py-0.5">
+            <span key={i} className="text-[10px] bg-slate-50 border border-slate-200 text-slate-600 rounded-md px-1.5 py-0.5 font-bold transition-all hover:scale-105 duration-200 cursor-default">
               {f.label}: {f.value}
             </span>
           ))}
@@ -488,14 +610,14 @@ function ConversationCard({ row, chatwootApp }) {
       )}
 
       {/* footer */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">
-          {row.channel || '—'}{row.agent ? ` · ${row.agent}` : ''}
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+          Canal: {row.channel || '—'}{row.agent ? ` · Agente: ${row.agent}` : ''}
         </span>
         {url && (
           <a href={url} target="_blank" rel="noreferrer"
-            className="text-xs font-semibold text-momo-700 hover:text-momo-900 underline">
-            Abrir ticket →
+            className="text-xs font-semibold text-momo-600 hover:text-momo-800 underline transition-colors">
+            Ver Conversación ↗
           </a>
         )}
       </div>
@@ -512,9 +634,11 @@ function SectionConversations({ block, chatwootApp, title, subtitle, icon, defau
 
   return (
     <CollapsibleResultSection title={title} subtitle={subtitle} badge={items.length} defaultOpen={defaultOpen ?? true}>
-      {items.map((row) => (
-        <ConversationCard key={`conv-${row.conversationId}`} row={row} chatwootApp={chatwootApp} />
-      ))}
+      <div className="bg-white divide-y divide-slate-100">
+        {items.map((row) => (
+          <ConversationCard key={`conv-${row.conversationId}`} row={row} chatwootApp={chatwootApp} />
+        ))}
+      </div>
     </CollapsibleResultSection>
   );
 }
@@ -529,23 +653,25 @@ function DriveFileRow({ file }) {
   const pdfExport = drivePdfAltUrl(file);
 
   return (
-    <div className="flex items-start gap-3 py-2">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
-        <p className="text-xs text-slate-400">{kind}</p>
-      </div>
-      <div className="flex gap-2 shrink-0 text-xs font-medium text-momo-700">
-        <a href={href} target="_blank" rel="noreferrer" className="underline hover:text-momo-900">Abrir</a>
-        {pdfExport && <a href={pdfExport} target="_blank" rel="noreferrer" className="underline hover:text-momo-900">PDF</a>}
-        {previewSrc && (
-          <button type="button" onClick={() => setShowPreview((v) => !v)} className="underline hover:text-momo-900">
-            {showPreview ? 'Cerrar' : 'Preview'}
-          </button>
-        )}
+    <div className="flex flex-col py-2 border-b border-slate-100 last:border-0">
+      <div className="flex items-start gap-3 justify-between">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-slate-800 truncate" title={file.name}>{file.name}</p>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{kind}</p>
+        </div>
+        <div className="flex gap-2.5 shrink-0 text-[11px] font-semibold text-momo-600">
+          <a href={href} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Abrir ↗</a>
+          {pdfExport && <a href={pdfExport} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Exportar PDF</a>}
+          {previewSrc && (
+            <button type="button" onClick={() => setShowPreview((v) => !v)} className="underline hover:text-momo-800">
+              {showPreview ? 'Cerrar Previa' : 'Vista Previa'}
+            </button>
+          )}
+        </div>
       </div>
       {showPreview && previewSrc && (
-        <div className="mt-2 rounded border border-slate-200 overflow-hidden w-full">
-          <iframe title={file.name} src={previewSrc} className="w-full h-48 border-0" />
+        <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden w-full transition-all duration-300">
+          <iframe title={file.name} src={previewSrc} className="w-full h-56 border-0 bg-white" />
         </div>
       )}
     </div>
@@ -557,7 +683,7 @@ function SectionDrive({ block, meta, query }) {
   if (block.status === 'error') {
     return (
       <CollapsibleResultSection title="Google Drive" badge={0} error={block.error} defaultOpen>
-        <p className="px-4 py-3 text-sm text-slate-400">Error al buscar en Drive</p>
+        <p className="px-4 py-3 text-sm text-slate-400 italic">Error al buscar en Google Drive</p>
       </CollapsibleResultSection>
     );
   }
@@ -568,23 +694,30 @@ function SectionDrive({ block, meta, query }) {
   if (!hasHits && d.skipped && !stCount) return null;
 
   return (
-    <CollapsibleResultSection title="Drive (Servicio técnico)" badge={folders.filter((f) => f.found).length} defaultOpen={hasHits}>
-      {!hasHits && d.skipped && (
-        <p className="px-4 py-3 text-sm text-slate-400">
-          Órdenes: {(meta?.stOrdersFromChatwoot || []).join(', ') || '—'}. {d.reason || ''}
-        </p>
-      )}
-      {folders.map((f) => (
-        <div key={f.order} className="px-4 py-3">
-          <p className="text-sm font-semibold text-slate-700 mb-1">
-            Orden {f.order} {f.found ? '' : '— sin carpeta'}
+    <CollapsibleResultSection title="Google Drive (Servicio Técnico)" badge={folders.filter((f) => f.found).length} defaultOpen={hasHits}>
+      <div className="bg-white divide-y divide-slate-100">
+        {!hasHits && d.skipped && (
+          <p className="px-4 py-3.5 text-xs text-slate-400 italic font-medium">
+            Órdenes asociadas: {(meta?.stOrdersFromChatwoot || []).join(', ') || '—'}. {d.reason || ''}
           </p>
-          {f.error && <p className="text-xs text-red-600">{f.error}</p>}
-          {f.files?.length > 0 && (
-            <div className="space-y-1.5">{f.files.map((file) => <DriveFileRow key={file.id} file={file} />)}</div>
-          )}
-        </div>
-      ))}
+        )}
+        {folders.map((f) => (
+          <div key={f.order} className="px-4 py-3.5">
+            <p className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+              <span>📁 Orden de Servicio: {f.order}</span>
+              <span className={`text-[9px] font-bold uppercase rounded-md px-1.5 py-0.5 ${f.found ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                {f.found ? 'Carpeta Encontrada' : 'Sin Carpeta'}
+              </span>
+            </p>
+            {f.error && <p className="text-xs text-red-500 font-semibold">{f.error}</p>}
+            {f.files?.length > 0 ? (
+              <div className="space-y-1 bg-slate-50/50 rounded-xl px-3 py-1 border border-slate-100">{f.files.map((file) => <DriveFileRow key={file.id} file={file} />)}</div>
+            ) : f.found ? (
+              <p className="text-xs text-slate-400 italic">Sin archivos adjuntos en la carpeta</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </CollapsibleResultSection>
   );
 }
@@ -594,46 +727,35 @@ function SectionDrive({ block, meta, query }) {
 function StBanner({ meta }) {
   if (!meta?.recentSt?.showBanner) return null;
   return (
-    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex gap-3 items-start">
-      <span className="text-lg shrink-0">⚠️</span>
+    <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm backdrop-blur-md flex gap-3 items-start animate-pulse">
+      <span className="text-xl shrink-0">⚠️</span>
       <div>
-        <p className="font-semibold text-amber-900 text-sm">Actividad en Servicio Técnico (últimos 90 días)</p>
+        <p className="font-bold text-amber-900 text-sm">Actividad en Servicio Técnico Reciente</p>
+        <p className="text-xs text-amber-800 mt-0.5 leading-relaxed font-semibold">El cliente registra hitos de servicio técnico en los últimos 90 días.</p>
         {meta.recentSt.lastDate && (
-          <p className="text-xs text-amber-800 mt-0.5">Último hito: {formatIso(meta.recentSt.lastDate)}</p>
+          <p className="text-[10px] text-amber-700 mt-1 font-bold">Último Hito: {formatIso(meta.recentSt.lastDate)}</p>
         )}
       </div>
     </div>
   );
 }
 
-// ─── intelligent summary ──────────────────────────────────────────────────────
-
 // ─── client ficha ─────────────────────────────────────────────────────────────
 
 function Skeleton() {
-  return <span className="inline-block h-3.5 w-24 rounded bg-slate-100 animate-pulse" />;
+  return <span className="inline-block h-4 w-28 rounded bg-slate-100 animate-pulse" />;
 }
 
 function Empty() {
-  return <span className="text-sm text-slate-300 italic">No encontrado</span>;
-}
-
-function CopyChip({ value }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="text-sm text-slate-900 break-all font-mono">{value}</span>
-      <button type="button" onClick={() => copyText(value)}
-        className="text-slate-300 hover:text-momo-600 transition-colors text-sm shrink-0" title="Copiar">⧉</button>
-    </span>
-  );
+  return <span className="text-sm text-slate-300 italic font-medium">No registrado</span>;
 }
 
 function FichaRow({ icon, label, loading, children }) {
   return (
-    <div className="flex items-start gap-3 px-4 py-2.5 border-b border-slate-100 last:border-0">
-      <span className="text-sm shrink-0 w-5 text-center mt-0.5 select-none">{icon}</span>
-      <span className="text-xs font-semibold text-slate-400 w-[88px] shrink-0 pt-0.5 uppercase tracking-wide">{label}</span>
-      <div className="flex-1 min-w-0">
+    <div className="flex items-start gap-3 px-4 py-2.5 border-b border-slate-100 last:border-0 hover:bg-slate-50/30 transition-colors">
+      <span className="text-base shrink-0 w-6 text-center mt-0.5 select-none">{icon}</span>
+      <span className="text-[10px] font-bold text-slate-400 w-24 shrink-0 pt-1 uppercase tracking-wider">{label}</span>
+      <div className="flex-1 min-w-0 font-medium">
         {loading ? <Skeleton /> : children}
       </div>
     </div>
@@ -665,87 +787,158 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const idLoading = isSummaryLoading;
   const liveLoading = isSearchLoading;
 
+  // Generar nota interna
+  const [sending, setSending] = useState(false);
+  const handleSendFichaNote = async () => {
+    if (!conversationId) return;
+    setSending(true);
+    let md = `### 📋 Ficha ST Consolidada del Cliente\n\n`;
+    if (name) md += `👤 **Nombre:** ${name}\n`;
+    if (email) md += `✉️ **Correo:** ${email}\n`;
+    if (phone) md += `📱 **Teléfono:** ${phone}\n`;
+    if (imeis.length) md += `📡 **IMEIs:** ${imeis.join(', ')}\n`;
+    if (sims.length) md += `💳 **SIMs:** ${sims.join(', ')}\n`;
+    if (shopifyOrders.length) md += `📦 **Shopify:** ${shopifyOrders.map(o => o.name).join(', ')}\n`;
+    if (bsaleItems.length) md += `🧾 **Bsale:** Boleta Folio ${bsaleItems.map(b => b.number).join(', ')}\n`;
+    
+    md += `\n*Ficha consolidada enviada desde el panel.*`;
+    try {
+      await postPrivateNote(conversationId, md);
+      alert('✅ Ficha enviada como nota interna correctamente!');
+    } catch (err) {
+      alert(`❌ Error al enviar nota: ${err.message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Toggle de etiqueta ST
+  const [tagging, setTagging] = useState(false);
+  const activeTicket = openTickets.find(o => o.conversationId === conversationId);
+  const isStTagged = activeTicket?.stTagged || false;
+  const labels = activeTicket?.labels || [];
+
+  const handleToggleST = async () => {
+    setTagging(true);
+    let list = [...labels];
+    if (isStTagged) {
+      list = list.filter(l => l.toLowerCase() !== 'st');
+    } else {
+      list.push('st');
+    }
+    try {
+      await postConversationLabels(conversationId, list);
+      alert(`✅ Etiqueta ST ${isStTagged ? 'quitada' : 'agregada'} correctamente! Refresca para ver los cambios.`);
+    } catch (err) {
+      alert(`❌ Error al actualizar etiqueta: ${err.message}`);
+    } finally {
+      setTagging(false);
+    }
+  };
+
   return (
-    <div className="rounded-xl border border-momo-200 bg-white shadow-sm overflow-hidden mb-4">
+    <div className="rounded-2xl border border-momo-100 bg-white shadow-sm overflow-hidden mb-4 transition-all hover:shadow-md animate-fade-in">
       {/* ── header ── */}
-      <div className="px-4 py-2.5 bg-gradient-to-r from-momo-700 to-momo-500 flex items-center justify-between gap-2">
-        <span className="text-white font-bold text-sm tracking-wide">Ficha del cliente #{conversationId}</span>
-        <div className="flex items-center gap-2">
-          {(isSummaryLoading || isSearchLoading) && (
-            <span className="inline-block h-3 w-3 rounded-full border-[1.5px] border-white border-t-transparent animate-spin" />
+      <div className="px-4 py-3 bg-gradient-to-r from-momo-700 to-momo-500 flex items-center justify-between gap-2">
+        <div className="flex flex-col">
+          <span className="text-white font-bold text-sm tracking-wide">Ficha del Cliente</span>
+          {summary?.updated_at && (
+            <span className="text-momo-200 text-[10px] font-semibold mt-0.5">Última sync: {formatIso(summary.updated_at)}</span>
           )}
-          {!isSummaryLoading && !isSearchLoading && summary?.updated_at && (
-            <span className="text-momo-100 text-[11px]">{formatIso(summary.updated_at)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            disabled={tagging}
+            onClick={handleToggleST}
+            className={`text-[10px] font-bold rounded-lg px-2.5 py-1.5 transition-all flex items-center gap-1 disabled:opacity-50 ${
+              isStTagged 
+                ? 'bg-amber-500 text-white hover:bg-amber-600' 
+                : 'bg-white/20 text-white hover:bg-white/30'
+            }`}
+          >
+            <span>🏷️</span> {isStTagged ? 'Etiqueta ST ✓' : 'Etiquetar ST'}
+          </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={handleSendFichaNote}
+            className="text-[10px] bg-white/20 text-white hover:bg-white/30 font-bold rounded-lg px-2.5 py-1.5 transition-all flex items-center gap-1 disabled:opacity-50"
+          >
+            <span>📝</span> {sending ? 'Enviando...' : 'Enviar Ficha'}
+          </button>
+          {(isSummaryLoading || isSearchLoading) && (
+            <span className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-white border-t-transparent animate-spin ml-1" />
           )}
         </div>
       </div>
 
       {/* ── filas de identidad ── */}
       <FichaRow icon="👤" label="Nombre" loading={idLoading}>
-        {name ? <span className="text-sm font-medium text-slate-900">{name}</span> : <Empty />}
+        {name ? <span className="text-sm font-semibold text-slate-800">{name}</span> : <Empty />}
       </FichaRow>
 
       <FichaRow icon="✉️" label="Correo" loading={idLoading}>
-        {email ? <CopyChip value={email} /> : <Empty />}
+        {email ? <CopyableValue value={email} /> : <Empty />}
       </FichaRow>
 
       <FichaRow icon="📱" label="WhatsApp" loading={idLoading}>
-        {phone ? <CopyChip value={phone} /> : <Empty />}
+        {phone ? <CopyableValue value={phone} /> : <Empty />}
       </FichaRow>
 
-      <FichaRow icon="📡" label="IMEI" loading={idLoading}>
+      <FichaRow icon="📡" label="IMEIs del chat" loading={idLoading}>
         {imeis.length
-          ? <div className="space-y-1">{imeis.map((v) => <CopyChip key={v} value={v} />)}</div>
+          ? <div className="space-y-1">{imeis.map((v) => <CopyableValue key={v} value={v} />)}</div>
           : <Empty />}
       </FichaRow>
 
-      <FichaRow icon="💳" label="N° SIM" loading={idLoading}>
+      <FichaRow icon="💳" label="SIMs del chat" loading={idLoading}>
         {sims.length
-          ? <div className="space-y-1">{sims.map((v) => <CopyChip key={v} value={v} />)}</div>
+          ? <div className="space-y-1">{sims.map((v) => <CopyableValue key={v} value={v} />)}</div>
           : <Empty />}
       </FichaRow>
 
       {/* ── resumen IA ── */}
-      <FichaRow icon="✨" label="Resumen IA" loading={idLoading}>
+      <FichaRow icon="✨" label="Resumen de IA" loading={idLoading}>
         {summary?.ai_summary
-          ? <p className="text-xs text-slate-700 leading-relaxed">{summary.ai_summary}</p>
-          : <span className="text-sm text-slate-300 italic">Sin resumen generado</span>}
+          ? <p className="text-xs text-slate-700 leading-relaxed font-semibold bg-slate-50 border border-slate-100 rounded-xl p-2.5">{summary.ai_summary}</p>
+          : <span className="text-xs text-slate-400 italic">No hay un resumen generado en Chatwoot. Usa el asistente IA oficial de Chatwoot en el panel del ticket.</span>}
       </FichaRow>
 
       {/* ── tickets abiertos ── */}
-      <FichaRow icon="🎫" label="Tickets" loading={liveLoading}>
+      <FichaRow icon="🎫" label="Tickets Abiertos" loading={liveLoading}>
         {openTickets.length ? (
           <div className="space-y-1.5">
             {openTickets.map((oc) => {
               const url = chatwootConversationUrl(chatwootApp, oc.conversationId);
               return (
                 <div key={oc.conversationId} className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">#{oc.ticketId} abierto</span>
+                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5">#{oc.ticketId} abierto</span>
                   <span className="text-[11px] text-slate-400">{formatIso(oc.date)}</span>
-                  {url && <a href={url} target="_blank" rel="noreferrer" className="text-[11px] text-momo-700 font-semibold underline">Ver →</a>}
+                  {url && <a href={url} target="_blank" rel="noreferrer" className="text-[11px] text-momo-600 font-bold underline transition-colors">Abrir ↗</a>}
                 </div>
               );
             })}
           </div>
         ) : (
-          <span className="text-sm text-slate-300 italic">Sin tickets abiertos</span>
+          <span className="text-xs text-slate-400 italic font-semibold">Sin tickets abiertos adicionales</span>
         )}
       </FichaRow>
 
       {/* ── compras shopify ── */}
-      <FichaRow icon="📦" label="SM Shopify" loading={liveLoading}>
+      <FichaRow icon="📦" label="Shopify" loading={liveLoading}>
         {shopifyOrders.length ? (
           <div className="space-y-2">
-            {shopifyOrders.map((o) => {
-              const payMap = { paid: 'Pagado', pending: 'Pendiente', refunded: 'Reembolsado' };
-              const fulfillMap = { fulfilled: 'Entregado', unfulfilled: 'Sin enviar', partial: 'Parcial' };
+            {shopifyOrders.slice(0, 4).map((o) => {
+              const payMap = { paid: '🟢 Pago Ok', pending: '🟡 Pendiente', refunded: '🔵 Reembolso' };
+              const fulfillMap = { fulfilled: '🔵 Enviado', unfulfilled: '🟡 Sin enviar', partial: 'Parcial' };
               return (
                 <div key={o.id} className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-bold text-momo-700 text-sm">{o.name}</span>
-                  {payMap[o.financialStatus] && <span className="text-[10px] bg-emerald-100 text-emerald-800 rounded-full px-1.5 py-0.5 font-semibold">{payMap[o.financialStatus]}</span>}
-                  {fulfillMap[o.fulfillmentStatus] && <span className="text-[10px] bg-blue-100 text-blue-800 rounded-full px-1.5 py-0.5 font-semibold">{fulfillMap[o.fulfillmentStatus]}</span>}
-                  {o.totalPrice && <span className="text-[11px] text-slate-500 font-medium">${Number(o.totalPrice).toLocaleString('es-CL')}</span>}
-                  {o.adminUrl && <a href={o.adminUrl} target="_blank" rel="noreferrer" className="text-[11px] text-momo-700 font-semibold underline">Ver →</a>}
+                  {payMap[o.financialStatus] && <span className="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 rounded-md px-1.5 py-0.5 font-bold">{payMap[o.financialStatus]}</span>}
+                  {fulfillMap[o.fulfillmentStatus] && <span className="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 rounded-md px-1.5 py-0.5 font-bold">{fulfillMap[o.fulfillmentStatus]}</span>}
+                  {o.totalPrice && <span className="text-xs text-slate-500 font-semibold">${Number(o.totalPrice).toLocaleString('es-CL')}</span>}
+                  {o.adminUrl && <a href={o.adminUrl} target="_blank" rel="noreferrer" className="text-[10px] text-momo-600 font-bold underline shrink-0 ml-1">Ver ↗</a>}
                 </div>
               );
             })}
@@ -759,12 +952,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       <FichaRow icon="🧾" label="Bsale" loading={liveLoading}>
         {bsaleItems.length ? (
           <div className="space-y-2">
-            {bsaleItems.map((row) => (
+            {bsaleItems.slice(0, 3).map((row) => (
               <div key={row.id} className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-semibold text-slate-800">N° {row.number}</span>
-                {row.total != null && <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">${Number(row.total).toLocaleString('es-CL')}</span>}
-                <span className="text-[11px] text-slate-400">{formatUnix(row.emissionDate)}</span>
-                {row.urlPublicView && <a href={row.urlPublicView} target="_blank" rel="noreferrer" className="text-[11px] text-momo-700 font-semibold underline">Ver →</a>}
+                <span className="text-xs font-bold text-slate-800">Folio N° {row.number}</span>
+                {row.total != null && <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5">${Number(row.total).toLocaleString('es-CL')}</span>}
+                <span className="text-[10px] text-slate-400 font-medium">{formatUnix(row.emissionDate)}</span>
+                {row.urlPublicView && <a href={row.urlPublicView} target="_blank" rel="noreferrer" className="text-[10px] text-momo-600 font-bold underline ml-1">PDF ↗</a>}
               </div>
             ))}
           </div>
@@ -780,9 +973,9 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
             {driveFiles.map((file) => {
               const href = file.webViewLink || (file.id ? `https://drive.google.com/file/d/${file.id}/view` : '#');
               return (
-                <div key={file.id} className="flex items-center gap-2">
-                  <span className="text-xs text-slate-700 truncate flex-1">{file.name}</span>
-                  <a href={href} target="_blank" rel="noreferrer" className="text-[11px] text-momo-700 font-semibold underline shrink-0">Abrir →</a>
+                <div key={file.id} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-100 rounded-xl px-2.5 py-1.5">
+                  <span className="text-xs text-slate-700 truncate font-semibold flex-1" title={file.name}>{file.name}</span>
+                  <a href={href} target="_blank" rel="noreferrer" className="text-[10px] text-momo-600 font-bold underline shrink-0">Abrir ↗</a>
                 </div>
               );
             })}
@@ -820,14 +1013,11 @@ export default function SearchPage() {
     }
   }, [ctxConvId]);
 
-  // Fusionar datos del appContext (si Chatwoot los manda) con los del backend
-  const ctxContact = {
-    name: chatwootCtx?.contact?.name || contactPreview?.name || null,
-    email: chatwootCtx?.contact?.email || contactPreview?.email || null,
-    phone: chatwootCtx?.contact?.phone || contactPreview?.phone || null,
-  };
   const debounced = useDebouncedValue(input.trim(), 400);
   const canSearch = debounced.length >= 2;
+
+  // Detectar si la búsqueda manual difiere del ticket actual en modo embebido
+  const isManualSearchActive = !!ctxConvId && !!debounced && debounced !== `cw ${ctxConvId}`;
 
   const resolveConversation = useMutation({
     mutationFn: resolveChatwootConversation,
@@ -853,62 +1043,97 @@ export default function SearchPage() {
   const dr = data?.drive;
   const meta = data?.meta;
 
-  // ─── render ───────────────────────────────────────────────────────────────────
-
   return (
-    <div className={embed ? 'px-3 py-4' : 'max-w-2xl mx-auto px-4 py-8'}>
+    <div className={embed ? 'px-3 py-3 bg-slate-50/50 min-h-screen' : 'max-w-6xl mx-auto px-4 py-8 min-h-screen'}>
 
-      {/* barra de búsqueda */}
-      <div className="mb-4">
-        <label htmlFor="q" className="sr-only">Buscar cliente</label>
+      {/* barra de búsqueda unificada */}
+      <div className="mb-4 animate-fade-in">
+        <label htmlFor="q" className="sr-only">Buscar cliente unificado</label>
         <div className="relative">
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">🔍</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg pointer-events-none">🔍</span>
           <input
             id="q" name="q" type="search" autoComplete="off"
-            placeholder="IMEI, RUT, correo, nombre, N° pedido…"
+            placeholder="IMEI, RUT, correo, nombre, N° pedido o folio..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-slate-900 text-sm shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-momo-400 focus:border-momo-400"
+            className="w-full rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md pl-11 pr-4 py-3 text-slate-900 text-sm shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-momo-400 focus:border-momo-400 focus:shadow-md"
           />
         </div>
         {/^\d{15}$/.test(input.trim()) && input.trim().startsWith('8') && (
-          <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1.5">
-            <span className="font-medium text-slate-700">ID del equipo:</span>
-            <span className="font-mono text-momo-700 font-semibold">{input.trim().slice(4, -1)}</span>
-            <button type="button" onClick={() => copyText(input.trim().slice(4, -1))}
-              className="text-slate-400 hover:text-momo-600" title="Copiar">⧉</button>
+          <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 w-fit">
+            <span className="font-bold text-slate-600">ID derivado del equipo:</span>
+            <span className="font-mono text-momo-700 font-bold">{input.trim().slice(4, -1)}</span>
+            <button type="button" onClick={() => copyText(input.trim().slice(4, -1), () => alert('¡ID copiado!'))}
+              className="text-slate-400 hover:text-momo-600 text-sm" title="Copiar">⧉</button>
           </p>
         )}
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════
-          MODO EMBED — Ficha unificada siempre visible
+          MODO EMBED — En la barra lateral de Chatwoot
       ══════════════════════════════════════════════════════════════════ */}
       {ctxConvId && (
-        <>
-          <ClientFicha
-            conversationId={ctxConvId}
-            summaryData={summaryData}
-            isSummaryLoading={isFetchingSummary && !summaryData}
-            searchData={data}
-            isSearchLoading={isFetching}
-            chatwootApp={meta?.chatwootApp}
-          />
-
-          {/* error de búsqueda en embed */}
-          {isError && (
-            <div className="rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs px-4 py-2.5 mb-3">
-              {error?.message || 'Error al consultar las fuentes'}
+        <div className="animate-fade-in space-y-4">
+          
+          {/* Banner de búsqueda manual activa */}
+          {isManualSearchActive && (
+            <div className="rounded-2xl border border-momo-200 bg-momo-50/90 p-3.5 backdrop-blur-md shadow-sm flex items-center justify-between gap-3 animate-fade-in">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-momo-950 flex items-center gap-1">
+                  <span>🔍</span> Búsqueda manual activa
+                </p>
+                <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                  Resultados para: <span className="font-mono bg-momo-100 border border-momo-200 text-momo-800 px-1.5 py-0.5 rounded font-bold">{debounced}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInput(`cw ${ctxConvId}`)}
+                className="rounded-xl bg-momo-600 hover:bg-momo-700 text-white text-[10px] font-bold px-3 py-2 transition-all shadow-sm shrink-0 flex items-center gap-1"
+              >
+                <span>⬅️</span> Volver al ticket
+              </button>
             </div>
           )}
 
-          {/* pills de estado de fuentes */}
+          {/* Ficha principal o resultados de búsqueda manual */}
+          {!isManualSearchActive ? (
+            <ClientFicha
+              conversationId={ctxConvId}
+              summaryData={summaryData}
+              isSummaryLoading={isFetchingSummary && !summaryData}
+              searchData={data}
+              isSearchLoading={isFetching}
+              chatwootApp={meta?.chatwootApp}
+            />
+          ) : (
+            data && <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} conversationId={ctxConvId} />
+          )}
+
+          {/* Errores */}
+          {isError && (
+            <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-xs px-4 py-3 shadow-sm">
+              {error?.message || 'Error al consultar las fuentes de información'}
+            </div>
+          )}
+
+          {/* Estado de fuentes */}
           {data && <SourceStatusBar data={data} meta={meta} />}
 
-          {/* historial colapsable — debajo de la ficha */}
+          {/* Resultados consolidados y colapsables */}
           {data && (
-            <div className="space-y-3 mt-3">
+            <div className="space-y-3 mt-3 animate-fade-in">
               <SectionSimilarTickets meta={meta} />
+              
+              {/* Solo mostramos boletas y pedidos directos en embed si es búsqueda manual */}
+              {isManualSearchActive && (
+                <>
+                  <SectionBsale block={bs} shopifyBlock={sh} />
+                  <SectionShopify block={sh} />
+                  <SectionDrive block={dr} meta={meta} query={data?.query} />
+                </>
+              )}
+
               <SectionConversations
                 block={cw}
                 chatwootApp={meta?.chatwootApp}
@@ -925,72 +1150,96 @@ export default function SearchPage() {
               />
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════
-          MODO STANDALONE — Búsqueda libre con secciones separadas
+          MODO STANDALONE — Panel de escritorio de doble columna
       ══════════════════════════════════════════════════════════════════ */}
       {!ctxConvId && (
-        <>
-          {/* empty state */}
+        <div className="animate-fade-in">
+          
+          {/* Vacío inicial */}
           {!canSearch && !isFetching && (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 py-10 text-center px-4">
-              <p className="text-2xl mb-2">🔎</p>
-              <p className="text-sm font-medium text-slate-600 mb-3">¿Qué puedes buscar?</p>
-              <div className="flex flex-wrap justify-center gap-2 text-xs">
-                {[['ID conversación', '1234'], ['IMEI', '358123456789012'], ['RUT', '12.345.678-9'],
-                  ['Correo', 'cliente@mail.com'], ['Nombre', 'Ana García'], ['N° pedido', '#SM38293']].map(([label, ex]) => (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 py-12 text-center px-6 shadow-sm animate-fade-in">
+              <p className="text-4xl mb-3">🔍</p>
+              <p className="text-base font-bold text-slate-800 mb-1">Centro de Inteligencia de Soporte</p>
+              <p className="text-xs text-slate-400 mb-6 font-medium">Busca en tiempo real sobre Chatwoot, Shopify, Bsale y Google Drive.</p>
+              <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
+                {[
+                  ['RUT Cliente', '12.345.678-9'],
+                  ['Correo', 'contacto@soymomo.com'],
+                  ['IMEI / ID', '358123456789012'],
+                  ['Pedido Shopify', '#SM38293'],
+                  ['Ticket Bsale', '38293'],
+                  ['ID Chatwoot', 'cw 1234']
+                ].map(([label, ex]) => (
                   <button key={label} type="button" onClick={() => setInput(ex)}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:border-momo-300 hover:text-momo-700 hover:bg-momo-50 transition-colors">
-                    <span className="font-medium">{label}</span><span className="text-slate-400 ml-1">· {ex}</span>
+                    className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 hover:border-momo-400 hover:text-momo-700 hover:bg-momo-50/50 transition-all duration-200 shadow-sm flex items-center gap-1.5">
+                    <span className="text-slate-400">{label}</span>
+                    <span className="font-bold text-momo-600 font-mono">{ex}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* loading */}
+          {/* Cargando */}
           {canSearch && isFetching && (
-            <div className="flex items-center gap-2 text-sm text-momo-600 mb-4">
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-momo-400 border-t-transparent animate-spin" />
-              Consultando Chatwoot, Bsale y Shopify…
+            <div className="flex items-center gap-2.5 text-sm font-bold text-momo-700 bg-momo-50 border border-momo-100 rounded-2xl p-4 shadow-sm animate-pulse mb-4">
+              <span className="inline-block h-4 w-4 rounded-full border-2 border-momo-500 border-t-transparent animate-spin" />
+              Consolidando información de Chatwoot, Bsale, Shopify y Drive...
             </div>
           )}
 
-          {/* error */}
+          {/* Errores */}
           {canSearch && isError && (
-            <div className="rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mb-4">
-              {error?.message || 'Error al buscar'}
+            <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3.5 shadow-sm mb-4">
+              {error?.message || 'Error al procesar la búsqueda en las plataformas de soporte.'}
             </div>
           )}
 
-          {/* resultados */}
+          {/* Resultados */}
           {canSearch && !isError && data && (
-            <div className="space-y-4">
-              <SourceStatusBar data={data} meta={meta} />
-              <SectionOpenTickets
-                meta={meta}
-                onResolve={(id) => resolveConversation.mutate(id)}
-                resolving={resolveConversation.isPending}
-                resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
-              />
-              <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
-              <StBanner meta={meta} />
-              <SectionSimilarTickets meta={meta} />
-              <SectionBsale block={bs} shopifyBlock={sh} />
-              <SectionShopify block={sh} />
-              <SectionDrive block={dr} meta={meta} query={data?.query} />
-              <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Servicio técnico" subtitle="Tickets con etiqueta ST" defaultOpen={false} />
-              <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Historial de conversaciones" subtitle="Todos los tickets del contacto" defaultOpen={false} />
-              {meta?.bsaleNote && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{meta.bsaleNote}</div>}
-              {meta?.shopifyNote && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{meta.shopifyNote}</div>}
-              {meta?.strictNameNote && <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{meta.strictNameNote}</div>}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-fade-in">
+              
+              {/* Columna Lateral Izquierda (Ficha, Drive y banners) */}
+              <div className="lg:col-span-5 space-y-4">
+                <SourceStatusBar data={data} meta={meta} />
+                <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
+                <StBanner meta={meta} />
+                <SectionDrive block={dr} meta={meta} query={data?.query} />
+              </div>
+
+              {/* Columna Principal Derecha (Resultados de Bsale, Shopify y Chats) */}
+              <div className="lg:col-span-7 space-y-4">
+                <SectionOpenTickets
+                  meta={meta}
+                  onResolve={(id) => resolveConversation.mutate(id)}
+                  resolving={resolveConversation.isPending}
+                  resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
+                />
+                
+                <SectionSimilarTickets meta={meta} />
+                
+                <SectionBsale block={bs} shopifyBlock={sh} />
+                
+                <SectionShopify block={sh} />
+                
+                <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Servicio técnico" subtitle="Tickets con etiqueta ST" defaultOpen={true} />
+                
+                <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Historial de conversaciones" subtitle="Todas las conversaciones del contacto" defaultOpen={false} />
+                
+                {meta?.bsaleNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.bsaleNote}</div>}
+                
+                {meta?.shopifyNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.shopifyNote}</div>}
+                
+                {meta?.strictNameNote && <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 text-xs font-semibold text-slate-800 leading-relaxed shadow-sm"><span className="font-bold text-slate-900">Filtro de nombre:</span> {meta.strictNameNote}</div>}
+              </div>
             </div>
           )}
-        </>
+        </div>
       )}
-
     </div>
   );
 }

@@ -50,11 +50,18 @@ export function buildSearchPlan(raw) {
     }
   }
 
-  // 2. Número corto puro (3–6 dígitos) → ID de conversación
+  // 2. Número corto puro (3–6 dígitos) → ID de conversación híbrido (puede ser ID, boleta o pedido)
   if (SHORT_NUM_RE.test(trimmed)) {
     const conversationId = Number(trimmed);
     if (conversationId > 0) {
-      return { type: 'conversationId', conversationId, chatwootQueries: [], bsaleHints: {} };
+      return {
+        type: 'shortNumber',
+        conversationId,
+        numberStr: trimmed,
+        chatwootQueries: [trimmed],
+        shopifyNamesToTry: [`#${trimmed}`, `SM${trimmed}`, `#SM${trimmed}`, trimmed],
+        bsaleHints: { number: trimmed }
+      };
     }
   }
 

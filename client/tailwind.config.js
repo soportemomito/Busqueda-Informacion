@@ -4,20 +4,20 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['DM Sans', 'system-ui', 'sans-serif'],
+        sans: ['Outfit', 'Plus Jakarta Sans', 'system-ui', 'sans-serif'],
       },
       colors: {
         momo: {
-          50: '#f5f3ff',
-          100: '#ede9fe',
-          200: '#ddd6fe',
-          300: '#c4b5fd',
-          400: '#a78bfa',
-          500: '#8b5cf6',
-          600: '#7c3aed',
-          700: '#6d28d9',
-          800: '#5b21b6',
-          900: '#4c1d95',
+          50: '#f8f6ff',
+          100: '#f0ebff',
+          200: '#e1d7ff',
+          300: '#cbb8ff',
+          400: '#ab8eff',
+          500: '#8c5eff',
+          600: '#723bf5',
+          700: '#5e27db',
+          800: '#4e1eb8',
+          900: '#3d1694',
         },
       },
     },

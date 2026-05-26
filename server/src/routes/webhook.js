@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Router } from 'express';
-import { getSupabase } from '../lib/supabase.js';
+import { getSupabase, upsertDeviceFacts } from '../lib/supabase.js';
 import { extractDeviceFactsFromText } from '../lib/extractDeviceFacts.js';
 
 export const webhookRouter = Router();
@@ -148,6 +148,34 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
+
+        // Guardar en la tabla device_facts para búsquedas y cruce inteligente de similitud inmediato
+        const allIdentifiers = [];
+        for (const imei of currentImeis) {
+          allIdentifiers.push({ label: 'ID / IMEI', value: imei, conversationId, contactId: contact.id });
+        }
+        for (const sim of currentSims) {
+          allIdentifiers.push({ label: 'ICCID / SIM', value: sim, conversationId, contactId: contact.id });
+        }
+        for (const st of currentSt) {
+          allIdentifiers.push({ label: 'Servicio Técnico', value: st, conversationId, contactId: contact.id });
+        }
+        for (const sm of currentShopify) {
+          allIdentifiers.push({ label: 'Pedido Shopify', value: sm, conversationId, contactId: contact.id });
+        }
+        if (contactEmail) {
+          allIdentifiers.push({ label: 'Email', value: contactEmail, conversationId, contactId: contact.id });
+        }
+        if (contactPhone) {
+          allIdentifiers.push({ label: 'Teléfono', value: contactPhone, conversationId, contactId: contact.id });
+        }
+        if (contactName) {
+          allIdentifiers.push({ label: 'Nombre', value: contactName, conversationId, contactId: contact.id });
+        }
+
+        if (allIdentifiers.length > 0) {
+          await upsertDeviceFacts(supabase, allIdentifiers);
+        }
       }
 
       // Podríamos manejar conversation_updated aquí si queremos actualizar el resumen AI cuando cambia

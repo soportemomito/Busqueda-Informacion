@@ -137,7 +137,7 @@ async function fetchContactSearch(client, accountId, q) {
   return [];
 }
 
-async function fetchConversationMessages(client, accountId, conversationId, limit = 80) {
+export async function fetchConversationMessages(client, accountId, conversationId, limit = 80) {
   try {
     const { data } = await client.get(`/api/v1/accounts/${accountId}/conversations/${conversationId}/messages`, {
       params: { limit },
@@ -437,15 +437,54 @@ export async function searchChatwoot(plan, creds) {
     };
   }
 
+  let directConv = null;
+  let directContact = null;
+
+  if (plan.type === 'shortNumber') {
+    try {
+      const full = await fetchConversationDetail(client, accountId, plan.conversationId);
+      if (full?.id) {
+        directConv = full;
+        const cid = full.contact_id ?? full.meta?.contact?.id;
+        if (cid) {
+          try {
+            const { data } = await client.get(`/api/v1/accounts/${accountId}/contacts/${cid}`);
+            const p = data.payload || data;
+            if (p?.id) directContact = p;
+          } catch {
+            if (full.meta?.sender?.id) directContact = full.meta.sender;
+          }
+        } else if (full.meta?.sender?.id) {
+          directContact = full.meta.sender;
+        }
+      }
+    } catch {
+      // Ignorar error de conversación no encontrada por ID
+    }
+  }
+
   const queries = [...new Set((plan.chatwootQueries || []).filter(Boolean))];
   const contactById = new Map();
+
+  if (directContact?.id) {
+    contactById.set(directContact.id, {
+      ...directContact,
+      id: directContact.id,
+      name: directContact.name || [directContact.first_name, directContact.last_name].filter(Boolean).join(' ').trim() || null,
+      email: directContact.email || null,
+      phone_number: directContact.phone_number || null
+    });
+  }
 
   for (const q of queries) {
     let list;
     try {
       list = await fetchContactSearch(client, accountId, q);
     } catch (e) {
-      throw chatwootHttpError('Chatwoot (búsqueda contactos)', e);
+      if (plan.type !== 'shortNumber') {
+        throw chatwootHttpError('Chatwoot (búsqueda contactos)', e);
+      }
+      list = [];
     }
     for (const c of list) {
       if (c?.id) contactById.set(c.id, c);
@@ -475,6 +514,9 @@ export async function searchChatwoot(plan, creds) {
   }
 
   const convMap = new Map();
+  if (directConv?.id) {
+    convMap.set(directConv.id, directConv);
+  }
 
   for (const contact of contactList.slice(0, 20)) {
     const contactId = contact.id;
