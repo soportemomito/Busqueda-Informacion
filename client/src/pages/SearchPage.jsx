@@ -55,14 +55,48 @@ function driveEmbedPreviewUrl(file) {
   return null;
 }
 
-async function copyText(text, onCopied) {
+function copyText(text, onCopied) {
   const t = String(text || '').trim();
   if (!t) return;
+
+  // 1. Intentar con execCommand (funciona de forma síncrona en iframes cross-origin bajo evento click)
   try {
-    await navigator.clipboard.writeText(t);
-    if (onCopied) onCopied(t);
-  } catch {
-    window.prompt('Copiar:', t);
+    const el = document.createElement('textarea');
+    el.value = t;
+    el.setAttribute('readonly', '');
+    el.style.position = 'absolute';
+    el.style.left = '-9999px';
+    document.body.appendChild(el);
+
+    const selected = document.getSelection().rangeCount > 0
+      ? document.getSelection().getRangeAt(0)
+      : false;
+
+    el.select();
+    const success = document.execCommand('copy');
+    document.body.removeChild(el);
+
+    if (success) {
+      if (selected) {
+        document.getSelection().removeAllRanges();
+        document.getSelection().addRange(selected);
+      }
+      if (onCopied) onCopied(t);
+      return;
+    }
+  } catch (e) {
+    // continuar al fallback
+  }
+
+  // 2. Fallback a navigator.clipboard
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t)
+      .then(() => {
+        if (onCopied) onCopied(t);
+      })
+      .catch(() => {
+        // Silencioso, evitamos prompt molesto
+      });
   }
 }
 
@@ -232,16 +266,6 @@ function ProfileCard({ meta, bsBlock, cwBlock, conversationId }) {
     <div className="mb-4 rounded-2xl border border-momo-100 bg-white/90 backdrop-blur-md shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md animate-fade-in">
       <div className="px-4 py-3 bg-gradient-to-r from-momo-700 to-momo-500 flex items-center justify-between gap-2">
         <span className="text-white font-semibold text-sm tracking-wide">Perfil del cliente</span>
-        {conversationId && (
-          <button
-            type="button"
-            disabled={sendingNote}
-            onClick={handleSendNote}
-            className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-semibold rounded-lg px-2.5 py-1 transition-all flex items-center gap-1 disabled:opacity-50"
-          >
-            <span>📝</span> {sendingNote ? 'Enviando...' : 'Enviar Nota Interna'}
-          </button>
-        )}
       </div>
       <div className="divide-y divide-slate-100/80">
         {rows.map((r) => (
@@ -380,6 +404,93 @@ function SectionSimilarTickets({ meta }) {
             </div>
           );
         })}
+      </div>
+    </CollapsibleResultSection>
+  );
+}
+
+// ─── service orders (Google Sheets Sync) ──────────────────────────────────────
+
+function SectionServiceOrders({ block }) {
+  if (!block || !Array.isArray(block) || block.length === 0) return null;
+
+  return (
+    <CollapsibleResultSection title="Órdenes de Servicio ST (Google Sheets)" badge={block.length} defaultOpen>
+      <div className="bg-white divide-y divide-slate-100">
+        {block.map((row) => (
+          <div key={`so-${row.id}`} className="px-4 py-4 hover:bg-slate-50/40 transition-colors">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <span className="font-bold text-slate-800 text-sm">Órden N° {row.order_number}</span>
+                  {row.status === 'completed' ? (
+                    <span className="text-[10px] font-bold rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 px-1.5 py-0.5">🟢 Entregado/Salida</span>
+                  ) : (
+                    <span className="text-[10px] font-bold rounded-md bg-blue-50 border border-blue-200 text-blue-800 px-1.5 py-0.5">🔵 Ingresado/Entrada</span>
+                  )}
+                  {row.imei_sim && (
+                    <span className="text-[10px] font-bold bg-slate-50 border border-slate-200 text-slate-600 rounded-md px-1.5 py-0.5 font-mono">
+                      IMEI/SIM: {row.imei_sim}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2 bg-slate-50/60 rounded-xl p-2.5 border border-slate-100/80 text-xs">
+                  <div>
+                    <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Fecha Entrada</p>
+                    <p className="font-semibold text-slate-700 mt-0.5">{row.entry_date ? formatIso(row.entry_date) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Fecha Salida</p>
+                    <p className="font-semibold text-slate-700 mt-0.5">{row.exit_date ? formatIso(row.exit_date) : '—'}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-2">
+                  {row.check_in_notes && (
+                    <div className="text-xs">
+                      <span className="font-bold text-slate-400 uppercase text-[9px] tracking-wider block">Observaciones Entrada</span>
+                      <p className="text-slate-600 font-medium mt-0.5">{row.check_in_notes}</p>
+                    </div>
+                  )}
+                  {row.check_out_notes && (
+                    <div className="text-xs">
+                      <span className="font-bold text-slate-400 uppercase text-[9px] tracking-wider block">Resultado de la prueba / Salida</span>
+                      <p className="text-slate-600 font-medium mt-0.5">{row.check_out_notes}</p>
+                    </div>
+                  )}
+                  {row.solution && (
+                    <div className="text-xs bg-emerald-50/30 border border-emerald-100/50 rounded-xl p-2">
+                      <span className="font-bold text-emerald-800 uppercase text-[9px] tracking-wider block">Solución Técnica</span>
+                      <p className="text-emerald-900 font-semibold mt-0.5">{row.solution}</p>
+                    </div>
+                  )}
+                </div>
+
+                {row.technician && (
+                  <p className="text-[11px] text-slate-400 mt-2.5 font-medium">
+                    Técnico asignado: <span className="text-slate-600 font-semibold">{row.technician}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-1.5 shrink-0 self-start">
+                {row.report_url && (
+                  <a href={row.report_url} target="_blank" rel="noreferrer"
+                    className="rounded-xl bg-momo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-momo-700 transition-all shadow-sm">
+                    Ver Informe ↗
+                  </a>
+                )}
+                {row.sheet_row_url && (
+                  <a href={row.sheet_row_url} target="_blank" rel="noreferrer"
+                    className="rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold px-3 py-1.5 hover:bg-slate-50 transition-all">
+                    Planilla Sheets ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </CollapsibleResultSection>
   );
@@ -847,28 +958,8 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            disabled={tagging}
-            onClick={handleToggleST}
-            className={`text-[10px] font-bold rounded-lg px-2.5 py-1.5 transition-all flex items-center gap-1 disabled:opacity-50 ${
-              isStTagged 
-                ? 'bg-amber-500 text-white hover:bg-amber-600' 
-                : 'bg-white/20 text-white hover:bg-white/30'
-            }`}
-          >
-            <span>🏷️</span> {isStTagged ? 'Etiqueta ST ✓' : 'Etiquetar ST'}
-          </button>
-          <button
-            type="button"
-            disabled={sending}
-            onClick={handleSendFichaNote}
-            className="text-[10px] bg-white/20 text-white hover:bg-white/30 font-bold rounded-lg px-2.5 py-1.5 transition-all flex items-center gap-1 disabled:opacity-50"
-          >
-            <span>📝</span> {sending ? 'Enviando...' : 'Enviar Ficha'}
-          </button>
           {(isSummaryLoading || isSearchLoading) && (
-            <span className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-white border-t-transparent animate-spin ml-1" />
+            <span className="inline-block h-3.5 w-3.5 rounded-full border-[2px] border-white border-t-transparent animate-spin" />
           )}
         </div>
       </div>
@@ -958,6 +1049,35 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
                 {row.total != null && <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5">${Number(row.total).toLocaleString('es-CL')}</span>}
                 <span className="text-[10px] text-slate-400 font-medium">{formatUnix(row.emissionDate)}</span>
                 {row.urlPublicView && <a href={row.urlPublicView} target="_blank" rel="noreferrer" className="text-[10px] text-momo-600 font-bold underline ml-1">PDF ↗</a>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty />
+        )}
+      </FichaRow>
+
+      {/* ── órdenes ST (Sheets) ── */}
+      <FichaRow icon="📋" label="ST (Planilla)" loading={liveLoading}>
+        {searchData?.service_orders?.length ? (
+          <div className="space-y-2">
+            {searchData.service_orders.slice(0, 3).map((row) => (
+              <div key={row.id} className="flex flex-col gap-0.5 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="font-bold text-slate-800 text-xs">Orden N° {row.order_number}</span>
+                  {row.status === 'completed' ? (
+                    <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5">Salida</span>
+                  ) : (
+                    <span className="text-[9px] font-bold text-blue-800 bg-blue-50 border border-blue-100 rounded-md px-1.5 py-0.5">Entrada</span>
+                  )}
+                </div>
+                {row.entry_date && <p className="text-[10px] text-slate-400 font-medium mt-1">Entrada: {formatIso(row.entry_date)}</p>}
+                {row.exit_date && <p className="text-[10px] text-slate-400 font-medium">Salida: {formatIso(row.exit_date)}</p>}
+                {row.solution && <p className="text-[10px] text-emerald-900 font-bold mt-1 bg-emerald-50 border border-emerald-100/50 rounded p-1">Solución: {row.solution}</p>}
+                <div className="flex gap-2 mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-momo-600">
+                  {row.report_url && <a href={row.report_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Ver Informe ↗</a>}
+                  {row.sheet_row_url && <a href={row.sheet_row_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Planilla Sheets ↗</a>}
+                </div>
               </div>
             ))}
           </div>
@@ -1063,7 +1183,7 @@ export default function SearchPage() {
           <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 w-fit">
             <span className="font-bold text-slate-600">ID derivado del equipo:</span>
             <span className="font-mono text-momo-700 font-bold">{input.trim().slice(4, -1)}</span>
-            <button type="button" onClick={() => copyText(input.trim().slice(4, -1), () => alert('¡ID copiado!'))}
+            <button type="button" onClick={() => copyText(input.trim().slice(4, -1))}
               className="text-slate-400 hover:text-momo-600 text-sm" title="Copiar">⧉</button>
           </p>
         )}
@@ -1128,6 +1248,7 @@ export default function SearchPage() {
               {/* Solo mostramos boletas y pedidos directos en embed si es búsqueda manual */}
               {isManualSearchActive && (
                 <>
+                  <SectionServiceOrders block={data?.service_orders} />
                   <SectionBsale block={bs} shopifyBlock={sh} />
                   <SectionShopify block={sh} />
                   <SectionDrive block={dr} meta={meta} query={data?.query} />
@@ -1221,6 +1342,8 @@ export default function SearchPage() {
                 />
                 
                 <SectionSimilarTickets meta={meta} />
+                
+                <SectionServiceOrders block={data?.service_orders} />
                 
                 <SectionBsale block={bs} shopifyBlock={sh} />
                 

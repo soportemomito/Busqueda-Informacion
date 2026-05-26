@@ -27,10 +27,36 @@ function extractGeminiSummary(customAttributes) {
     'conversation_summary',
     'ai_conversation_summary',
     'copilot_summary',
+    'resumen',
+    'resumen_ia',
+    'resumen_chat',
+    'chat_summary',
+    'descripcion',
+    'description',
+    'nota_st',
+    'st_resumen',
   ];
   for (const k of keys) {
     const v = customAttributes[k];
     if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+function extractSummaryFromMessageContent(content) {
+  if (!content || typeof content !== 'string') return null;
+  const clean = content.replace(/<[^>]+>/g, ' ').trim();
+  
+  const prefixes = [
+    /^(?:resumen\s*(?:ia|gemini|openai|gpt)?\s*[:\-–—]|\bresumen\s+de\s+(?:la\s+)?conversaci[oó]n\s*[:\-–—])/i,
+    /^(?:summary\s*(?:ia|ai|gemini|openai|gpt)?\s*[:\-–—]|\bsummary\s+of\s+(?:the\s+)?conversation\s*[:\-–—])/i,
+    /^(?:resumen\s+st\s*[:\-–—]|\bdiagn[oó]stico\s*[:\-–—])/i
+  ];
+  
+  for (const prefix of prefixes) {
+    if (prefix.test(clean)) {
+      return clean.replace(prefix, '').trim();
+    }
   }
   return null;
 }
@@ -106,12 +132,15 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const contactEmail = contact.email || null;
         const contactPhone = contact.phone_number || null;
         
-        const aiSummary = extractGeminiSummary(conversation.custom_attributes);
+        let aiSummary = extractGeminiSummary(conversation.custom_attributes);
+        if (!aiSummary && content) {
+          aiSummary = extractSummaryFromMessageContent(content);
+        }
         
-        // Obtener historial previo para no perder arrays si ya existen
+        // Obtener historial previo para no perder arrays ni el resumen si ya existen
         const { data: existing } = await supabase
           .from('conversation_summaries')
-          .select('extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders')
+          .select('ai_summary, extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders')
           .eq('conversation_id', conversationId)
           .single();
 
@@ -140,7 +169,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           contact_name: contactName,
           contact_email: contactEmail,
           contact_phone: contactPhone,
-          ai_summary: aiSummary,
+          ai_summary: aiSummary || existing?.ai_summary || null,
           extracted_imei: [...currentImeis],
           extracted_sim: [...currentSims],
           extracted_st_tickets: [...currentSt],

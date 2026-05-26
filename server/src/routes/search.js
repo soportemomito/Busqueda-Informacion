@@ -514,6 +514,56 @@ searchRouter.get('/', async (req, res) => {
   const contactIdentifiers = collectContactIdentifiers(cwData, shopifyBlock, plan);
   const allIdentifiers = [...equipmentFacts, ...contactIdentifiers];
 
+  // --- CONSULTA A SERVICE_ORDERS (GOOGLE SHEETS SYNC) ---
+  let serviceOrdersList = [];
+  if (supabase) {
+    const orConditions = [];
+
+    // 1. Por email
+    if (pivot.emails?.length) {
+      pivot.emails.forEach(e => {
+        if (e && e.includes('@')) orConditions.push(`contact_email.eq.${e.toLowerCase()}`);
+      });
+    }
+
+    // 2. Por número de orden (ST o Shopify)
+    const stOrderNumbers = [...new Set([
+      ...stOrders,
+      ...(pivot.orderNumbers || []),
+      ...(plan.type === 'orderNumber' ? [plan.shopifyNamesToTry, plan.orderNumber, plan.orderRaw].flat() : []),
+      ...(plan.type === 'shortNumber' ? [plan.numberStr] : []),
+      rawQ
+    ].filter(Boolean))];
+    
+    stOrderNumbers.forEach(o => {
+      orConditions.push(`order_number.eq.${o}`);
+    });
+
+    // 3. Por IMEI / SIM
+    const imeiSims = [...new Set([
+      ...equipmentFacts.map(f => f.value),
+      ...(plan.type === 'imei' ? [plan.imei, plan.deviceId] : [])
+    ].filter(Boolean))];
+    
+    imeiSims.forEach(id => {
+      orConditions.push(`imei_sim.eq.${id}`);
+    });
+
+    if (orConditions.length > 0) {
+      try {
+        const { data: dbOrders } = await supabase
+          .from('service_orders')
+          .select('id, order_number, status, technician, received_at, entry_date, exit_date, check_in_notes, check_out_notes, solution, imei_sim, report_url, sheet_row_url, contact_name, contact_email')
+          .or(orConditions.join(','));
+        if (dbOrders) {
+          serviceOrdersList = dbOrders;
+        }
+      } catch (err) {
+        console.error('[search] Error al consultar service_orders:', err.message);
+      }
+    }
+  }
+
   const currentConvIds = [...new Set(allIdentifiers.map((f) => f.conversationId).filter(Boolean))];
   const relatedByDevice = await lookupRelatedByDevice(supabase, allIdentifiers, currentConvIds);
   const similarTickets = groupSimilarTickets(relatedByDevice);
@@ -608,6 +658,7 @@ searchRouter.get('/', async (req, res) => {
     bsale: bsaleBlock,
     shopify: shopifyBlock,
     drive: driveBlock,
+    service_orders: serviceOrdersList,
     meta,
   });
 });
