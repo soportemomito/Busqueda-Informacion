@@ -4,11 +4,11 @@
  */
 
 const PAIRS = [
-  [/modelo(?:\s*de\s*reloj)?\s*:\s*([^\n]+)/gi, 'Modelo'],
+  [/modelo(?:\s*(?:de|del)?\s*reloj)?\s*:\s*([^\n]+)/gi, 'Modelo'],
   [/producto\s*:\s*([^\n]+)/gi, 'Producto'],
   [/tablet\s*:\s*([^\n]+)/gi, 'Tablet'],
   [/color\s*:\s*([^\n]+)/gi, 'Color'],
-  [/(?:id\s*\/\s*imei|imei|id\s*del\s*dispositivo)\s*:\s*([A-Za-z0-9]+)/gi, 'ID / IMEI'],
+  [/(?:id\s*\/\s*imei|imei|id\s*(?:del)?\s*dispositivo)\s*:\s*([A-Za-z0-9]+)/gi, 'ID / IMEI'],
   [/serial\s*(?:n[ºo°.]?)?\s*:\s*([A-Za-z0-9-]+)/gi, 'Serial'],
   [/sku\s*:\s*([^\n]+)/gi, 'SKU'],
   [/suscripci[oó]n\s*:\s*(\d{14,22})/gi, 'ICCID / SIM'],
@@ -33,6 +33,7 @@ export function extractDeviceFactsFromText(text) {
   if (!text || typeof text !== 'string') return [];
   const out = [];
   const seen = new Set();
+  
   for (const [re, label] of PAIRS) {
     re.lastIndex = 0;
     let m;
@@ -43,8 +44,19 @@ export function extractDeviceFactsFromText(text) {
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ label, value });
+
+      // Si es un IMEI de 15 dígitos que empieza con 8, derivar e indexar también el ID de 10 dígitos
+      if (label === 'ID / IMEI' && value.length === 15 && value.startsWith('8')) {
+        const derived = value.slice(4, -1);
+        const derivedKey = `ID / IMEI:${derived}`;
+        if (!seen.has(derivedKey)) {
+          seen.add(derivedKey);
+          out.push({ label: 'ID / IMEI', value: derived });
+        }
+      }
     }
   }
+
   const imeiLoose = text.match(/\b(?:IMEI|imei)\s*[:\s]?\s*(\d{15})\b/);
   if (imeiLoose) {
     const value = imeiLoose[1];
@@ -52,6 +64,15 @@ export function extractDeviceFactsFromText(text) {
     if (!seen.has(key)) {
       seen.add(key);
       out.push({ label: 'ID / IMEI', value });
+
+      if (value.startsWith('8')) {
+        const derived = value.slice(4, -1);
+        const derivedKey = `ID / IMEI:${derived}`;
+        if (!seen.has(derivedKey)) {
+          seen.add(derivedKey);
+          out.push({ label: 'ID / IMEI', value: derived });
+        }
+      }
     }
   }
 
