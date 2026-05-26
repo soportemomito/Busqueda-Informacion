@@ -35,7 +35,7 @@ function parseDate(val) {
 }
 
 /**
- * Reads BOTH "Entradas" and "Salida" sheets, merges them by order_number, 
+ * Reads "Entradas", "Entrada recepción" and "Salida" sheets, merges them by order_number, 
  * and upserts the consolidated records into service_orders in Supabase.
  * Returns { success: true, synced, skipped }.
  */
@@ -46,15 +46,23 @@ export async function syncServiceOrdersFromSheet(db) {
 
   const sheets = google.sheets({ version: 'v4', auth });
   
-  console.log('[sheets_sync] Iniciando consulta paralela de Entradas y Salidas...');
+  console.log('[sheets_sync] Iniciando consulta paralela de Entradas, Entrada recepción y Salidas...');
   
-  const [entradasRes, salidasRes] = await Promise.all([
+  const [entradasRes, recepcionRes, salidasRes] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Entradas!B2:AF',
       valueRenderOption: 'UNFORMATTED_VALUE',
     }).catch(err => {
       console.error('[sheets_sync] Error consultando Entradas:', err.message);
+      return { data: { values: [] } };
+    }),
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Entrada recepción!C2:AF',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    }).catch(err => {
+      console.error('[sheets_sync] Error consultando Entrada recepción:', err.message);
       return { data: { values: [] } };
     }),
     sheets.spreadsheets.values.get({
@@ -68,24 +76,26 @@ export async function syncServiceOrdersFromSheet(db) {
   ]);
 
   const rawEntradas = entradasRes.data.values || [];
+  const rawRecepcion = recepcionRes.data.values || [];
   const rawSalidas = salidasRes.data.values || [];
   
-  console.log(`[sheets_sync] Filas obtenidas - Entradas: ${rawEntradas.length}, Salidas: ${rawSalidas.length}`);
+  console.log(`[sheets_sync] Filas obtenidas - Entradas: ${rawEntradas.length}, Entrada Recepción: ${rawRecepcion.length}, Salidas: ${rawSalidas.length}`);
 
   const ordersMap = new Map();
   let skipped = 0;
 
-  // 1. Procesar Entradas (Check-in)
-  // Rango B2:AF -> relativo a B (B=0):
-  // Col B (0): Orden
-  // Col C (1): Fecha (Check-in)
-  // Col E (3): ID (IMEI/SIM)
-  // Col F (4): Nombre
-  // Col G (5): Correo
-  // Col P (14): Observaciones (Check-in Notes)
-  for (const row of rawEntradas) {
+  // Helper para procesar las columnas relativas de los sheets de entrada
+  // Rango Entradas!B2:AF -> relativo a B (B=0):
+  // Rango Entrada recepción!C2:AF -> relativo a C (C=0):
+  // Col 0: Orden
+  // Col 1: Fecha (Check-in)
+  // Col 3: ID (IMEI/SIM)
+  // Col 4: Nombre
+  // Col 5: Correo
+  // Col 14: Observaciones (Check-in Notes)
+  const processInputRow = (row, gid) => {
     const orderNumber = String(row[0] ?? '').trim();
-    if (!orderNumber) { skipped++; continue; }
+    if (!orderNumber) { skipped++; return; }
 
     ordersMap.set(orderNumber, {
       order_number: orderNumber,
@@ -95,12 +105,22 @@ export async function syncServiceOrdersFromSheet(db) {
       contact_email: String(row[5] ?? '').trim().toLowerCase() || null,
       check_in_notes: String(row[14] ?? '').trim() || null,
       status: 'received',
-      sheet_row_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit#gid=1508216390`, // GID estimativo de Entradas o url del sheet
+      sheet_row_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit#gid=${gid}`,
     });
+  };
+
+  // 1. Procesar Entradas (Ingresos generales)
+  for (const row of rawEntradas) {
+    processInputRow(row, '1508216390');
   }
 
-  // 2. Procesar Salidas (Check-out) y Consolidar
-  // Rango B2:AF -> relativo a B (B=0):
+  // 2. Procesar Entrada recepción (Ingresos de recepción)
+  for (const row of rawRecepcion) {
+    processInputRow(row, '527581788');
+  }
+
+  // 3. Procesar Salidas (Check-out) y Consolidar
+  // Rango Salida!B2:AF -> relativo a B (B=0):
   // Col B (0): Orden
   // Col C (1): Fecha Salida (Check-out)
   // Col D (2): ID (IMEI/SIM)
