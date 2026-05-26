@@ -13,7 +13,7 @@ function extractConvId(s) {
   if (m) return Number(m[1]);
   try {
     const url = new URL(str, 'https://x');
-    for (const key of ['conversation_id', 'conv_id', 'conversation', 'cw', 'cid', 'id']) {
+    for (const key of ['conversation_id', 'conversationId', 'conv_id', 'convId', 'conversation', 'cw', 'cid', 'id']) {
       const v = url.searchParams.get(key);
       if (v && /^\d+$/.test(v)) return Number(v);
     }
@@ -78,38 +78,15 @@ export function useChatwootDashboardContext() {
         }
       }
 
-      // Detectar si el mensaje viene del padre (funciona cross-origin)
-      let fromParent = false;
-      try { fromParent = event.source === window.parent; } catch {}
-
-      if (fromParent) {
-        // Logear todo lo que Chatwoot envíe, sea el formato que sea
-        const detail = d == null
-          ? '(null)'
-          : typeof d === 'string'
-            ? d.slice(0, 300)
-            : JSON.stringify(d).slice(0, 300);
-
-        const isObj = d && typeof d === 'object';
-        const isAppCtx = isObj && (d.event === 'appContext' || d.type === 'appContext');
-        logEvent('chatwoot', isAppCtx, null, detail);
-
-        if (isObj) {
-          // Intentar extraer contexto de CUALQUIER mensaje del padre,
-          // no solo de 'appContext' — Chatwoot usa distintos event names según versión
-          const payload = d.payload ?? d.data ?? d;
-          const ctxData = pickContextFromPayload(payload);
-          if (ctxData) applyCtx(ctxData, isAppCtx ? 'appContext' : 'parent-any');
-        }
-        return;
-      }
-
-      // Mensajes de otras fuentes — solo procesar appContext
       if (!d || typeof d !== 'object') return;
-      if (d.event !== 'appContext' && d.type !== 'appContext') return;
+
+      // Intentar extraer contexto de cualquier mensaje (ej. desde Chatwoot u otras fuentes)
       const payload = d.payload ?? d.data ?? d;
       const ctxData = pickContextFromPayload(payload);
-      if (ctxData) applyCtx(ctxData, 'appContext-other');
+      if (ctxData) {
+        const isAppCtx = d.event === 'appContext' || d.type === 'appContext';
+        applyCtx(ctxData, isAppCtx ? 'appContext' : 'any-message');
+      }
     }
     window.addEventListener('message', onMessage);
 

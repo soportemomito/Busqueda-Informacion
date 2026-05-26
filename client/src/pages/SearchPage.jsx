@@ -1164,7 +1164,7 @@ export default function SearchPage() {
   const meta = data?.meta;
 
   return (
-    <div className={embed ? 'px-3 py-3 bg-slate-50/50 min-h-screen' : 'max-w-6xl mx-auto px-4 py-8 min-h-screen'}>
+    <div className={embed ? 'px-3 py-3 bg-slate-50/50 min-h-screen' : 'max-w-3xl mx-auto px-4 py-8 min-h-screen'}>
 
       {/* barra de búsqueda unificada */}
       <div className="mb-4 animate-fade-in">
@@ -1322,18 +1322,18 @@ export default function SearchPage() {
 
           {/* Resultados */}
           {canSearch && !isError && data && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in">
               
-              {/* Columna Lateral Izquierda (Ficha, Drive y banners) */}
-              <div className="lg:col-span-5 space-y-4">
+              {/* Sección Perfil, Estado y Drive */}
+              <div className="space-y-4">
                 <SourceStatusBar data={data} meta={meta} />
                 <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
                 <StBanner meta={meta} />
                 <SectionDrive block={dr} meta={meta} query={data?.query} />
               </div>
 
-              {/* Columna Principal Derecha (Resultados de Bsale, Shopify y Chats) */}
-              <div className="lg:col-span-7 space-y-4">
+              {/* Sección de Resultados por Plataforma */}
+              <div className="space-y-4">
                 <SectionOpenTickets
                   meta={meta}
                   onResolve={(id) => resolveConversation.mutate(id)}
