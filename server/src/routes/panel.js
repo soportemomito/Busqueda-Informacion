@@ -8,8 +8,14 @@ export const panelRouter = Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PANEL_HTML = join(__dirname, '../public/panel.html');
 
+let _cachedHtml = null;
+function getPanelHtml() {
+  if (!_cachedHtml) _cachedHtml = readFileSync(PANEL_HTML, 'utf8');
+  return _cachedHtml;
+}
+
 panelRouter.get('/', (_req, res) => {
-  const html = readFileSync(PANEL_HTML, 'utf8');
+  const html = getPanelHtml();
 
   const cwUrl      = (process.env.CHATWOOT_BASE_URL || '').replace(/\/+$/, '');
   const cwAccount  = process.env.CHATWOOT_ACCOUNT_ID || '';

@@ -16,7 +16,7 @@ function extractStOrdersFromText(text) {
   return [...new Set(raw.map((x) => x.toUpperCase().replace(/\s/g, '')))];
 }
 
-function extractGeminiSummary(customAttributes) {
+function extractAiSummary(customAttributes) {
   if (!customAttributes || typeof customAttributes !== 'object') return null;
   const keys = [
     'gemini_summary',
@@ -132,7 +132,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const contactEmail = contact.email || null;
         const contactPhone = contact.phone_number || null;
         
-        let aiSummary = extractGeminiSummary(conversation.custom_attributes);
+        let aiSummary = extractAiSummary(conversation.custom_attributes);
         if (!aiSummary && content) {
           aiSummary = extractSummaryFromMessageContent(content);
         }
@@ -213,7 +213,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
       // Podríamos manejar conversation_updated aquí si queremos actualizar el resumen AI cuando cambia
       if (event === 'conversation_updated') {
         const conversationId = payload.id;
-        const aiSummary = extractGeminiSummary(payload.custom_attributes);
+        const aiSummary = extractAiSummary(payload.custom_attributes);
         
         if (conversationId && aiSummary) {
           // Actualizar solo el ai_summary si existe

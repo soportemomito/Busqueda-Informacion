@@ -85,7 +85,6 @@ export async function resolveCredentials(supabase) {
     shopifyAdminApiBaseUrl: normalizeShopifyAdminApiBaseUrl(shopifyAdminBaseFromEnv()),
     shopifyAccessToken: (process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_API_TOKEN || '').trim(),
     shopifyWebhookSecret: (process.env.SHOPIFY_WEBHOOK_SECRET || '').trim(),
-    geminiApiKey: (process.env.GEMINI_API_KEY || '').trim(),
   };
 
   if (!supabase) return fromEnv;
@@ -115,6 +114,5 @@ export async function resolveCredentials(supabase) {
     ),
     shopifyAccessToken: pick(data.shopify_api_token, fromEnv.shopifyAccessToken),
     shopifyWebhookSecret: pick(data.shopify_webhook_secret, fromEnv.shopifyWebhookSecret),
-    geminiApiKey: pick(data.gemini_api_key, fromEnv.geminiApiKey),
   };
 }

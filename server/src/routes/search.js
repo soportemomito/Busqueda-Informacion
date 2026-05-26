@@ -500,7 +500,7 @@ searchRouter.get('/', async (req, res) => {
       channel: x.channel,
       agent: x.agent,
       date: x.date,
-      geminiSummary: x.geminiSummary,
+      aiSummary: x.aiSummary,
       stTagged: x.stTagged,
     }));
 
@@ -540,6 +540,12 @@ searchRouter.get('/', async (req, res) => {
 
     stOrderNumbers.forEach(o => {
       orConditions.push(`order_number.eq.${o}`);
+      // Agregar variante sin guión (P-1234 → P1234) y con guión (P1234 → P-1234)
+      // para cubrir inconsistencias entre lo que extrae Chatwoot y lo guardado en la planilla.
+      const noHyphen = o.replace(/-/g, '');
+      if (noHyphen !== o) orConditions.push(`order_number.eq.${noHyphen}`);
+      const withHyphen = o.replace(/^([A-Za-z]+)(\d+)$/, '$1-$2');
+      if (withHyphen !== o) orConditions.push(`order_number.eq.${withHyphen}`);
     });
 
     // 3. Por IMEI / SIM

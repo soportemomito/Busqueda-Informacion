@@ -290,13 +290,15 @@ async function fromDbServiceOrders(ctx, db, orderNumbers) {
   const { data } = await db.from('service_orders')
     .select(SERVICE_ORDERS_SELECT)
     .in('order_number', orderNumbers);
-  for (const o of data || []) {
-    if (ctx.serviceOrders.has(o.order_number)) continue;
-    ctx.serviceOrders.set(o.order_number, o);
-    if (o.device_id) {
-      const { data: dev } = await db.from('devices').select('imei').eq('id', o.device_id).maybeSingle();
-      if (dev?.imei) ctx.addImei(dev.imei);
-    }
+  const rows = data || [];
+  for (const o of rows) {
+    if (!ctx.serviceOrders.has(o.order_number)) ctx.serviceOrders.set(o.order_number, o);
+  }
+  // Batch-fetch device IMEIs in one query instead of N+1
+  const deviceIds = [...new Set(rows.filter(o => o.device_id).map(o => o.device_id))];
+  if (deviceIds.length) {
+    const { data: devs } = await db.from('devices').select('id, imei').in('id', deviceIds);
+    for (const dev of devs || []) if (dev.imei) ctx.addImei(dev.imei);
   }
 }
 
@@ -348,19 +350,27 @@ async function runRound(ctx, db) {
   const newShopifyOrders  = ctx.newDbItems(ctx.shopifyOrderNames, ctx._usedDbShopify);
   const newImeis          = ctx.newDbItems(ctx.imeis, ctx._usedDbDevices);
   const newServiceOrders  = ctx.newDbItems(ctx.serviceOrderNumbers, ctx._usedDbService);
+  const newDbBoletas      = ctx.newDbItems(ctx.boletaNumbers, ctx._usedDbBsale);
 
   newShopifyOrders.forEach(v => ctx._usedDbShopify.add(v));
   newImeis.forEach(v => ctx._usedDbDevices.add(v));
   newServiceOrders.forEach(v => ctx._usedDbService.add(v));
+  newDbBoletas.forEach(v => ctx._usedDbBsale.add(v));
 
   if (newShopifyOrders.length) tasks.push(fromDbShopify(ctx, db, newShopifyOrders).catch(() => {}));
   if (newImeis.length)         tasks.push(fromDbDevices(ctx, db, newImeis).catch(() => {}));
   if (newServiceOrders.length) tasks.push(fromDbServiceOrders(ctx, db, newServiceOrders).catch(() => {}));
+  if (newDbBoletas.length)     tasks.push(fromDbBsale(ctx, db, newDbBoletas).catch(() => {}));
 
   // SM order numbers → direct Shopify API lookup (exact match)
   const newApiShopifyOrders = ctx.newDbItems(ctx.shopifyOrderNames, ctx._usedApiShopifyOrders);
   newApiShopifyOrders.forEach(v => ctx._usedApiShopifyOrders.add(v));
   if (newApiShopifyOrders.length) tasks.push(fromShopifyByOrderNames(ctx, newApiShopifyOrders).catch(() => {}));
+
+  // Boleta/factura numbers → direct Bsale API lookup
+  const newApiBoletas = ctx.newDbItems(ctx.boletaNumbers, ctx._usedApiBsaleDocs);
+  newApiBoletas.forEach(v => ctx._usedApiBsaleDocs.add(v));
+  if (newApiBoletas.length) tasks.push(fromBsaleByDocNumbers(ctx, newApiBoletas).catch(() => {}));
 
   // Service orders by contact email (Google Sheets sync data)
   const newEmailsForST = ctx.newDbItems(ctx.emails, ctx._usedDbServiceByEmail);

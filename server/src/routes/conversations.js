@@ -141,8 +141,12 @@ conversationsRouter.post('/:id/summary/generate', async (req, res) => {
       console.warn('Error al buscar contacto para resumen:', e.message);
     }
 
-    // 3. Generar resumen con Gemini
-    const result = await generateGeminiSummaryAndFacts(messages, contactName, creds);
+    // 3. Obtener resumen IA de Chatwoot y extraer entidades de los mensajes
+    const result = await generateGeminiSummaryAndFacts(messages, contactName, null, {
+      client,
+      accountId,
+      conversationId,
+    });
 
     // 4. Guardar en Supabase
     const dbRow = {
@@ -168,18 +172,6 @@ conversationsRouter.post('/:id/summary/generate', async (req, res) => {
 
     if (dbErr) throw dbErr;
 
-    // 5. Escribir en atributos personalizados de Chatwoot
-    try {
-      await client.put(`/api/v1/accounts/${accountId}/conversations/${conversationId}`, {
-        custom_attributes: {
-          gemini_summary: result.ai_summary,
-          geminiSummary: result.ai_summary
-        }
-      });
-    } catch (e) {
-      console.warn('Error al actualizar atributos en Chatwoot:', e.message);
-    }
-
     return res.json({
       success: true,
       conversationId,
@@ -187,7 +179,7 @@ conversationsRouter.post('/:id/summary/generate', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error al generar resumen con Gemini:', error);
+    console.error('Error al generar resumen de conversación:', error);
     return res.status(500).json({ error: error.message || 'Error interno del servidor' });
   }
 });

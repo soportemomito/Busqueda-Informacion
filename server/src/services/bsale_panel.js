@@ -33,14 +33,14 @@ function mapDoc(doc, contactEmail) {
 }
 
 async function fetchDocsByClientIds(http, clientIds, fallbackEmail) {
-  const allDocs = [];
-  for (const id of clientIds.slice(0, 5)) {
-    try {
-      const { data } = await http.get('/documents.json', { params: { clientId: id, limit: 10 } });
-      allDocs.push(...(data?.items || []).map(d => mapDoc(d, fallbackEmail || null)));
-    } catch { /* silent */ }
-  }
-  return allDocs;
+  const results = await Promise.all(
+    clientIds.slice(0, 5).map(id =>
+      http.get('/documents.json', { params: { clientId: id, limit: 10 } })
+        .then(({ data }) => (data?.items || []).map(d => mapDoc(d, fallbackEmail || null)))
+        .catch(() => [])
+    )
+  );
+  return results.flat();
 }
 
 /**

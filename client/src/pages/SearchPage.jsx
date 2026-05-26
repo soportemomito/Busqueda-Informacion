@@ -312,8 +312,8 @@ function SectionOpenTickets({ meta, onResolve, resolving, resolveError }) {
                   <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-md px-1.5 py-0.5">{oc.channel || '—'}</span>
                   <span className="text-xs text-slate-400">{formatIso(oc.date)}</span>
                 </div>
-                {oc.geminiSummary && (
-                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed line-clamp-2 bg-slate-50/80 rounded-lg p-2 border border-slate-100">{oc.geminiSummary}</p>
+                {oc.aiSummary && (
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed line-clamp-2 bg-slate-50/80 rounded-lg p-2 border border-slate-100">{oc.aiSummary}</p>
                 )}
                 {oc.agent && <p className="text-[11px] text-slate-400 mt-1 font-medium">Agente asignado: <span className="text-slate-600 font-semibold">{oc.agent}</span></p>}
               </div>
@@ -700,10 +700,10 @@ function ConversationCard({ row, chatwootApp }) {
       </div>
 
       {/* summary — main content */}
-      {row.geminiSummary ? (
+      {row.aiSummary ? (
         <div className="bg-momo-50/60 rounded-xl px-3 py-2.5 mb-2.5 border border-momo-100/50">
           <p className="text-[9px] font-bold text-momo-600 uppercase tracking-wider mb-0.5">Resumen de Chat IA</p>
-          <p className="text-xs text-slate-700 leading-relaxed font-medium">{row.geminiSummary}</p>
+          <p className="text-xs text-slate-700 leading-relaxed font-medium">{row.aiSummary}</p>
         </div>
       ) : (
         <p className="text-xs text-slate-400 italic mb-2.5 font-medium">Sin resumen disponible para este ticket</p>
@@ -1061,7 +1061,7 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       <FichaRow icon="📋" label="ST (Planilla)" loading={liveLoading}>
         {searchData?.service_orders?.length ? (
           <div className="space-y-2">
-            {searchData.service_orders.slice(0, 3).map((row) => (
+            {searchData.service_orders.map((row) => (
               <div key={row.id} className="flex flex-col gap-0.5 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
                 <div className="flex items-center justify-between gap-1.5">
                   <span className="font-bold text-slate-800 text-xs">Orden N° {row.order_number}</span>

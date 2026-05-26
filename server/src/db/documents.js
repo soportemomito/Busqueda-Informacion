@@ -72,39 +72,47 @@ export async function getShopifyOrders(contactInternalId, contactEmail, contactP
 
 export async function getServiceOrders(contactInternalId, deviceIds, convInternalIds) {
   const db = getDb();
+
+  const queries = [];
+
+  if (convInternalIds.length) {
+    queries.push(
+      db.from('conversation_documents')
+        .select('document_id')
+        .eq('document_type', 'service_order')
+        .in('conversation_id', convInternalIds)
+        .then(async ({ data: links }) => {
+          const ids = (links || []).map(l => l.document_id);
+          if (!ids.length) return [];
+          const { data } = await db.from('service_orders').select('*').in('id', ids);
+          return data || [];
+        })
+    );
+  }
+
+  if (contactInternalId) {
+    queries.push(
+      db.from('service_orders').select('*').eq('contact_id', contactInternalId)
+        .then(({ data }) => data || [])
+    );
+  }
+
+  if (deviceIds.length) {
+    queries.push(
+      db.from('service_orders').select('*').in('device_id', deviceIds)
+        .then(({ data }) => data || [])
+    );
+  }
+
+  if (!queries.length) return [];
+
+  const allResults = await Promise.all(queries);
   const seen = new Set();
   const results = [];
-
-  const add = (rows) => {
-    for (const r of rows || []) {
+  for (const rows of allResults) {
+    for (const r of rows) {
       if (!seen.has(r.id)) { seen.add(r.id); results.push(r); }
     }
-  };
-
-  // Via conversation_documents
-  if (convInternalIds.length) {
-    const { data: links } = await db.from('conversation_documents')
-      .select('document_id')
-      .eq('document_type', 'service_order')
-      .in('conversation_id', convInternalIds);
-    const ids = (links || []).map(l => l.document_id);
-    if (ids.length) {
-      const { data } = await db.from('service_orders').select('*').in('id', ids);
-      add(data);
-    }
   }
-
-  // By contact
-  if (contactInternalId) {
-    const { data } = await db.from('service_orders').select('*').eq('contact_id', contactInternalId);
-    add(data);
-  }
-
-  // By device IMEI
-  if (deviceIds.length) {
-    const { data } = await db.from('service_orders').select('*').in('device_id', deviceIds);
-    add(data);
-  }
-
   return results;
 }

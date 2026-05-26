@@ -29,7 +29,7 @@ function hasStLabel(labels) {
   });
 }
 
-function extractGeminiSummary(customAttributes) {
+function extractAiSummary(customAttributes) {
   if (!customAttributes || typeof customAttributes !== 'object') return null;
   const keys = [
     'gemini_summary',
@@ -154,7 +154,7 @@ function mapConversation(c) {
     date: c.updated_at || c.created_at || null,
     status: c.status,
     isOpen: c.status === 'open' || c.status === 'pending',
-    geminiSummary: extractGeminiSummary(c.custom_attributes),
+    aiSummary: extractAiSummary(c.custom_attributes),
     labels: labels.map((l) => l.title || l.name).filter(Boolean),
     stTagged: hasStLabel(labels),
     raw: c,

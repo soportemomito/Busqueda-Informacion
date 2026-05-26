@@ -18,18 +18,44 @@ function makeAuth(creds) {
   }
 }
 
+// Google Sheets con UNFORMATTED_VALUE devuelve fechas como números seriales:
+// días contados desde el 30-dic-1899 (por el bug histórico de Lotus 1-2-3).
+// new Date(serial) trata el valor como milisegundos → da fechas en 1970 ó 31/12/1969.
+const SHEETS_EPOCH_MS = Date.UTC(1899, 11, 30); // 30-dic-1899 en ms UTC
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 function parseDate(val) {
-  if (!val) return null;
-  // Handle DD/MM/YYYY or DD-MM-YYYY
-  const dmy = String(val).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (val == null || val === '') return null;
+
+  // Número serial de Google Sheets (> 1 para evitar confundir 0 con "vacío")
+  if (typeof val === 'number') {
+    if (val <= 1) return null;
+    const date = new Date(SHEETS_EPOCH_MS + val * MS_PER_DAY);
+    return isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  const s = String(val).trim();
+  if (!s) return null;
+
+  // DD/MM/YYYY o DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (dmy) {
     const [, d, m, y] = dmy;
     const year = y.length === 2 ? '20' + y : y;
-    const date = new Date(`${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`);
+    const date = new Date(`${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`);
     return isNaN(date.getTime()) ? null : date.toISOString();
   }
+
+  // String numérico puro → tratar como serial de Sheets
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const serial = parseFloat(s);
+    if (serial <= 1) return null;
+    const date = new Date(SHEETS_EPOCH_MS + serial * MS_PER_DAY);
+    return isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
   try {
-    const date = new Date(val);
+    const date = new Date(s);
     return isNaN(date.getTime()) ? null : date.toISOString();
   } catch { return null; }
 }

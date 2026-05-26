@@ -26,7 +26,6 @@ configRouter.get('/', async (req, res) => {
       driveParentFolderId: creds.driveParentFolderId || '',
       driveServiceAccountKey: creds.driveServiceAccountJson ? maskJson(creds.driveServiceAccountJson) : '',
       driveServiceAccountConfigured: Boolean(creds.driveServiceAccountJson?.trim()),
-      geminiApiKey: creds.geminiApiKey,
       supabaseAvailable: Boolean(supabase),
       fromDatabase: Boolean(supabase),
     });
@@ -54,7 +53,6 @@ configRouter.put('/', async (req, res) => {
       shopifyWebhookSecret,
       driveParentFolderId,
       driveServiceAccountKey,
-      geminiApiKey,
     } = req.body || {};
 
     const { data: existing } = await supabase.from('config').select('shopify_webhook_secret').eq('id', 1).maybeSingle();
@@ -76,7 +74,6 @@ configRouter.put('/', async (req, res) => {
       shopify_webhook_secret: webhookSecret,
       drive_parent_folder_id: driveParentFolderId ?? null,
       drive_service_account_key: driveServiceAccountKey ?? null,
-      gemini_api_key: geminiApiKey ?? null,
       updated_at: new Date().toISOString(),
     };
 
@@ -94,7 +91,6 @@ configRouter.put('/', async (req, res) => {
         shopifyAdminApiUrl: data.shopify_admin_api_url,
         shopifyAccessToken: data.shopify_api_token,
         driveParentFolderId: data.drive_parent_folder_id,
-        geminiApiKey: data.gemini_api_key,
         updatedAt: data.updated_at,
       },
     });

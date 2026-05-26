@@ -44,9 +44,12 @@ panelWebhookRouter.post('/', async (req, res) => {
 
   if (payload?.event !== 'message_created') return;
 
-  // Only process incoming messages (type 0 or string 'incoming')
+  // Process incoming customer messages (type 0) AND internal notes (type 2 / private=true)
+  // Outgoing agent messages (type 1) are skipped — they contain agent data, not client data.
   const msgType = payload.message_type;
-  if (msgType !== 0 && msgType !== 'incoming' && msgType !== '0') return;
+  const isCustomer    = msgType === 0 || msgType === 'incoming' || msgType === '0';
+  const isInternalNote = payload.private === true || msgType === 2 || msgType === '2' || msgType === 'activity';
+  if (!isCustomer && !isInternalNote) return;
 
   processWebhook(payload).catch(err => console.error('[webhook_panel] unhandled error:', err));
 });

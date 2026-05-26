@@ -52,6 +52,14 @@ pingParent();
 export function useChatwootDashboardContext() {
   const [ctx, setCtx] = useState(null);
   const lastIdRef = useRef(null);
+  const intervalRef = useRef(null);
+
+  function stopPing() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
 
   function applyCtx(ctxData, source) {
     const { conversationId: id, contact } = ctxData;
@@ -60,6 +68,7 @@ export function useChatwootDashboardContext() {
     const query = `cw ${id}`;
     logEvent(source, true, query, `conv id = ${id}`);
     setCtx({ query, conversationId: id, contact: contact || null, receivedAt: Date.now() });
+    stopPing(); // stop pinging once context is received
   }
 
   useEffect(() => {
@@ -91,10 +100,11 @@ export function useChatwootDashboardContext() {
     window.addEventListener('message', onMessage);
 
     // Ping periódico: Chatwoot responde con appContext cuando recibe 'loaded'
+    // Se detiene automáticamente cuando se recibe el contexto.
     pingParent();
     const t1 = setTimeout(pingParent, 400);
     const t2 = setTimeout(pingParent, 1000);
-    const interval = setInterval(pingParent, 2000);
+    intervalRef.current = setInterval(pingParent, 2000);
 
     // Fallback same-domain
     let pollStopped = false;
@@ -115,7 +125,7 @@ export function useChatwootDashboardContext() {
       window.removeEventListener('message', onMessage);
       clearTimeout(t1);
       clearTimeout(t2);
-      clearInterval(interval);
+      stopPing();
       pollStopped = true;
     };
   }, []);
