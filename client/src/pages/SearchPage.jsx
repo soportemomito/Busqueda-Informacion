@@ -886,8 +886,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const phone = summary?.contact_phone || meta?.contactSummary?.phone || null;
 
   // Identifiers extraídos de mensajes
-  const imeis = summary?.extracted_imei || [];
-  const sims = summary?.extracted_sim || [];
+  const imeis = (summary?.extracted_imei || []).filter(v => v.length === 15); // only full IMEIs
+  const deviceIds = (summary?.extracted_imei || [])
+    .filter(v => v.length === 15 && v.startsWith('8'))
+    .map(v => v.slice(4, -1)); // derived 10-digit ID: remove first 4 + last digit
+  const sims   = summary?.extracted_sim || [];
+  const models = summary?.extracted_device_models || [];
 
   // Datos en vivo de search
   const openTickets = meta?.openConversations || [];
@@ -907,8 +911,10 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     if (name) md += `👤 **Nombre:** ${name}\n`;
     if (email) md += `✉️ **Correo:** ${email}\n`;
     if (phone) md += `📱 **Teléfono:** ${phone}\n`;
-    if (imeis.length) md += `📡 **IMEIs:** ${imeis.join(', ')}\n`;
-    if (sims.length) md += `💳 **SIMs:** ${sims.join(', ')}\n`;
+    if (models.length) md += `📱 **Modelo:** ${models.join(', ')}\n`;
+    if (imeis.length) md += `📡 **IMEI:** ${imeis.join(', ')}\n`;
+    if (deviceIds.length) md += `🔑 **ID dispositivo:** ${deviceIds.join(', ')}\n`;
+    if (sims.length) md += `💳 **SIM SoyMomo:** ${sims.join(', ')}\n`;
     if (shopifyOrders.length) md += `📦 **Shopify:** ${shopifyOrders.map(o => o.name).join(', ')}\n`;
     if (bsaleItems.length) md += `🧾 **Bsale:** Boleta Folio ${bsaleItems.map(b => b.number).join(', ')}\n`;
     
@@ -977,13 +983,27 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
         {phone ? <CopyableValue value={phone} /> : <Empty />}
       </FichaRow>
 
-      <FichaRow icon="📡" label="IMEIs del chat" loading={idLoading}>
+      <FichaRow icon="📱" label="Modelo dispositivo" loading={idLoading}>
+        {models.length
+          ? <div className="space-y-1">{models.map((v) => (
+              <span key={v} className="inline-block text-xs font-bold text-momo-800 bg-momo-50 border border-momo-100 rounded-lg px-2 py-0.5">{v}</span>
+            ))}</div>
+          : <Empty />}
+      </FichaRow>
+
+      <FichaRow icon="📡" label="IMEI" loading={idLoading}>
         {imeis.length
           ? <div className="space-y-1">{imeis.map((v) => <CopyableValue key={v} value={v} />)}</div>
           : <Empty />}
       </FichaRow>
 
-      <FichaRow icon="💳" label="SIMs del chat" loading={idLoading}>
+      {deviceIds.length > 0 && (
+        <FichaRow icon="🔑" label="ID dispositivo" loading={idLoading}>
+          <div className="space-y-1">{deviceIds.map((v) => <CopyableValue key={v} value={v} />)}</div>
+        </FichaRow>
+      )}
+
+      <FichaRow icon="💳" label="Tarjeta SIM SoyMomo" loading={idLoading}>
         {sims.length
           ? <div className="space-y-1">{sims.map((v) => <CopyableValue key={v} value={v} />)}</div>
           : <Empty />}

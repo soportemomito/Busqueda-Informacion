@@ -1,10 +1,15 @@
+// SoyMomo product catalogue for inline model detection
+const SOYMOMO_MODEL_RE = /\b(?:SoyMomo\s+)?(?:Space\s+[1-9](?:\.\d+)?(?:\s+Lite)?|Baby\s+Monitor(?:\s+(?:Lite|Pro(?:\s+2)?))?|Tablet(?:\s+(?:Lite(?:\s+[23])?|Pro(?:\s+2)?))?|Momophone(?:\s+Pro)?)\b/gi;
+
 const PATTERNS = [
   {
+    // Any 15-digit number starting with 8 is treated as IMEI
     type: 'imei',
-    re: /\b(86\d{13})\b/g,
+    re: /\b(8\d{14})\b/g,
     normalize: (_, g1) => g1.replace(/\s/g, ''),
   },
   {
+    // ICCID / SIM: 19-20 digit number starting with 89 (ITU-T standard)
     type: 'sim_id',
     re: /\b(89\d{17,18})\b/g,
     normalize: (_, g1) => g1.replace(/\s/g, ''),
@@ -23,6 +28,12 @@ const PATTERNS = [
     type: 'service_order',
     re: /\bOS[-\s]?(\d{3,6})\b/gi,
     normalize: (_, g1) => 'OS-' + g1,
+  },
+  {
+    // SoyMomo device model — with explicit "Modelo [de reloj]:" label OR inline product name
+    type: 'device_model',
+    re: /modelo(?:\s*(?:de|del)?\s*(?:reloj|dispositivo|producto))?\s*:\s*([^\n]{3,60})/gi,
+    normalize: (_, g1) => g1.replace(/\s+/g, ' ').trim(),
   },
 ];
 
@@ -51,5 +62,24 @@ export function extractEntities(text) {
     }
   }
 
+  // Inline SoyMomo product name detection (no "Modelo:" prefix required)
+  const modelRegex = new RegExp(SOYMOMO_MODEL_RE.source, SOYMOMO_MODEL_RE.flags);
+  let m;
+  while ((m = modelRegex.exec(text)) !== null) {
+    const normalized_value = m[0].replace(/\s+/g, ' ').trim();
+    const key = `device_model:${normalized_value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    // Skip if already captured by a "Modelo:" pattern (same value)
+    const duplicate = results.some(
+      r => r.entity_type === 'device_model' &&
+        r.normalized_value.toLowerCase().includes(normalized_value.toLowerCase())
+    );
+    if (duplicate) continue;
+    seen.add(key);
+    results.push({ entity_type: 'device_model', raw_value: m[0], normalized_value });
+  }
+
   return results;
 }
+
+export { SOYMOMO_MODEL_RE };

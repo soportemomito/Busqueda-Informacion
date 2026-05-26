@@ -1,4 +1,4 @@
-import { extractEntities } from './extractor.js';
+import { extractEntities, SOYMOMO_MODEL_RE } from './extractor.js';
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
 const PHONE_RE = /(?:\+?56\s?)?9\d{8}/g;
@@ -53,6 +53,7 @@ export async function generateGeminiSummaryAndFacts(messages, contactName, _conf
   const sims     = new Set();
   const shopify  = new Set();
   const stOrders = new Set();
+  const models   = new Set();
 
   for (const m of relevant) {
     const text = m.content || '';
@@ -63,6 +64,7 @@ export async function generateGeminiSummaryAndFacts(messages, contactName, _conf
       if (entity.entity_type === 'sim_id')        sims.add(entity.normalized_value);
       if (entity.entity_type === 'shopify_order') shopify.add(entity.normalized_value);
       if (entity.entity_type === 'service_order') stOrders.add(entity.normalized_value);
+      if (entity.entity_type === 'device_model')  models.add(entity.normalized_value);
     }
   }
 
@@ -75,5 +77,6 @@ export async function generateGeminiSummaryAndFacts(messages, contactName, _conf
     extracted_sim:            [...sims],
     extracted_shopify_orders: [...shopify],
     extracted_st_tickets:     [...stOrders],
+    extracted_device_models:  [...models],
   };
 }

@@ -160,6 +160,7 @@ conversationsRouter.post('/:id/summary/generate', async (req, res) => {
       extracted_sim: result.extracted_sim || [],
       extracted_st_tickets: result.extracted_st_tickets || [],
       extracted_shopify_orders: result.extracted_shopify_orders || [],
+      extracted_device_models: result.extracted_device_models || [],
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };

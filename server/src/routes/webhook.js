@@ -140,14 +140,15 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         // Obtener historial previo para no perder arrays ni el resumen si ya existen
         const { data: existing } = await supabase
           .from('conversation_summaries')
-          .select('ai_summary, extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders')
+          .select('ai_summary, extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders, extracted_device_models')
           .eq('conversation_id', conversationId)
           .single();
 
-        const currentImeis = new Set(existing?.extracted_imei || []);
-        const currentSims = new Set(existing?.extracted_sim || []);
-        const currentSt = new Set(existing?.extracted_st_tickets || []);
+        const currentImeis   = new Set(existing?.extracted_imei || []);
+        const currentSims    = new Set(existing?.extracted_sim || []);
+        const currentSt      = new Set(existing?.extracted_st_tickets || []);
         const currentShopify = new Set(existing?.extracted_shopify_orders || []);
+        const currentModels  = new Set(existing?.extracted_device_models || []);
 
         // Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
         const isOutgoing = messageType === '1' || messageType === 'outgoing';
@@ -156,6 +157,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           for (const f of facts) {
             if (f.label === 'ID / IMEI') currentImeis.add(f.value);
             if (f.label === 'ICCID / SIM') currentSims.add(f.value);
+            if (f.label === 'Modelo') currentModels.add(f.value);
           }
 
           const newSt = extractStOrdersFromText(content);
@@ -177,6 +179,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           extracted_sim: [...currentSims],
           extracted_st_tickets: [...currentSt],
           extracted_shopify_orders: [...currentShopify],
+          extracted_device_models: [...currentModels],
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });

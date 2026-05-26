@@ -3,8 +3,11 @@
  * No es IA: regex sobre mensajes para mostrar tablita rápida en la UI.
  */
 
+// SoyMomo product catalogue for inline detection (without a "Modelo:" label)
+const SOYMOMO_MODEL_RE = /\b(?:SoyMomo\s+)?(?:Space\s+[1-9](?:\.\d+)?(?:\s+Lite)?|Baby\s+Monitor(?:\s+(?:Lite|Pro(?:\s+2)?))?|Tablet(?:\s+(?:Lite(?:\s+[23])?|Pro(?:\s+2)?))?|Momophone(?:\s+Pro)?)\b/gi;
+
 const PAIRS = [
-  [/modelo(?:\s*(?:de|del)?\s*reloj)?\s*:\s*([^\n]+)/gi, 'Modelo'],
+  [/modelo(?:\s*(?:de|del)?\s*(?:reloj|dispositivo|producto))?\s*:\s*([^\n]+)/gi, 'Modelo'],
   [/producto\s*:\s*([^\n]+)/gi, 'Producto'],
   [/tablet\s*:\s*([^\n]+)/gi, 'Tablet'],
   [/color\s*:\s*([^\n]+)/gi, 'Color'],
@@ -57,31 +60,44 @@ export function extractDeviceFactsFromText(text) {
     }
   }
 
-  const imeiLoose = text.match(/\b(?:IMEI|imei)\s*[:\s]?\s*(\d{15})\b/);
-  if (imeiLoose) {
-    const value = imeiLoose[1];
-    const key = `ID / IMEI:${value}`;
+  // Loose IMEI: any 15-digit number starting with 8 (with or without "IMEI:" prefix)
+  for (const m of (text.match(/\b(8\d{14})\b/g) || [])) {
+    const key = `ID / IMEI:${m}`;
     if (!seen.has(key)) {
       seen.add(key);
-      out.push({ label: 'ID / IMEI', value });
-
-      if (value.startsWith('8')) {
-        const derived = value.slice(4, -1);
-        const derivedKey = `ID / IMEI:${derived}`;
-        if (!seen.has(derivedKey)) {
-          seen.add(derivedKey);
-          out.push({ label: 'ID / IMEI', value: derived });
-        }
+      out.push({ label: 'ID / IMEI', value: m });
+      // Derived 10-digit device ID: remove first 4 and last digit
+      const derived = m.slice(4, -1);
+      const derivedKey = `ID / IMEI:${derived}`;
+      if (!seen.has(derivedKey)) {
+        seen.add(derivedKey);
+        out.push({ label: 'ID / IMEI', value: derived });
       }
     }
   }
 
-  // ICCID suelto: número de 18-22 dígitos que empieza con 89 (prefijo estándar SIM)
-  for (const m of (text.match(/\b(89\d{16,20})\b/g) || [])) {
+  // ICCID suelto: número de 19-20 dígitos que empieza con 89 (prefijo estándar SIM)
+  for (const m of (text.match(/\b(89\d{17,18})\b/g) || [])) {
     const key = `ICCID / SIM:${m}`;
     if (!seen.has(key)) {
       seen.add(key);
       out.push({ label: 'ICCID / SIM', value: m });
+    }
+  }
+
+  // Inline SoyMomo product model (no "Modelo:" prefix required)
+  const modelRe = new RegExp(SOYMOMO_MODEL_RE.source, SOYMOMO_MODEL_RE.flags);
+  let mm;
+  while ((mm = modelRe.exec(text)) !== null) {
+    const value = mm[0].replace(/\s+/g, ' ').trim();
+    const key = `Modelo:${value.toLowerCase()}`;
+    // Skip if already captured via the "Modelo: X" label pattern
+    const alreadyCaptured = out.some(
+      r => r.label === 'Modelo' && r.value.toLowerCase().includes(value.toLowerCase())
+    );
+    if (!seen.has(key) && !alreadyCaptured) {
+      seen.add(key);
+      out.push({ label: 'Modelo', value });
     }
   }
 
