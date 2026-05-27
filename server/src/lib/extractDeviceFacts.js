@@ -61,6 +61,8 @@ export function extractDeviceFactsFromText(text) {
       label = 'RUT';
     } else if (e.entity_type === 'comuna') {
       label = 'Comuna';
+    } else if (e.entity_type === 'direccion') {
+      label = 'Dirección';
     } else if (e.entity_type === 'failure_keyword') {
       label = 'Falla';
     }

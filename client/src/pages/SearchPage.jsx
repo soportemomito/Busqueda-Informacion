@@ -762,13 +762,18 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     }
   }
 
-  // Extraer RUT y Comuna desde los hechos de equipo
+  // Extraer RUT, Comuna y Dirección desde los hechos de equipo
   let ruts = [];
   let comunas = [];
+  let address = summary?.extracted_address || null;
   if (meta?.equipmentFacts) {
     const facts = meta.equipmentFacts || [];
     ruts = [...new Set(facts.filter(f => f.label === 'RUT').map(f => f.value))];
     comunas = [...new Set(facts.filter(f => f.label === 'Comuna').map(f => f.value))];
+    if (!address) {
+      const addrFact = facts.find(f => f.label === 'Dirección');
+      if (addrFact) address = addrFact.value;
+    }
   }
 
   // Datos en vivo de search
@@ -789,6 +794,7 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     if (phone) md += `📱 **WhatsApp:** ${phone}\n`;
     if (ruts.length) md += `🪪 **RUT:** ${ruts.join(', ')}\n`;
     if (comunas.length) md += `📍 **Comuna:** ${comunas.join(', ')}\n`;
+    if (address) md += `🏠 **Dirección:** ${address}\n`;
     if (models.length) md += `📱 **Modelo:** ${models.join(', ')}\n`;
     if (imeis.length) md += `📡 **IMEI:** ${imeis.join(', ')}\n`;
     if (deviceIds.length) md += `🔑 **ID dispositivo:** ${deviceIds.join(', ')}\n`;
@@ -870,6 +876,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
           <div className="space-y-1">{comunas.map((v) => (
             <span key={v} className="inline-block text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-2 py-0.5">{v}</span>
           ))}</div>
+        </FichaRow>
+      )}
+
+      {address && (
+        <FichaRow icon="🏠" label="Dirección" loading={idLoading}>
+          <CopyableValue value={address} />
         </FichaRow>
       )}
 
@@ -1143,27 +1155,13 @@ export default function SearchPage() {
             />
 
             <SectionSimilarTickets meta={meta} />
-
-            <SectionServiceOrders block={data?.service_orders} />
-
-            <SectionBsale block={bs} shopifyBlock={sh} />
-
-            <SectionShopify block={sh} />
-
-            <SectionConversations
-              block={cw}
-              chatwootApp={meta?.chatwootApp}
-              title="Servicio técnico"
-              subtitle="Tickets con etiqueta ST"
-              defaultOpen={!embed}
-            />
             
             <SectionConversations
               block={cw}
               chatwootApp={meta?.chatwootApp}
               title="Historial de conversaciones"
               subtitle={embed ? "Todos los tickets del contacto" : "Todas las conversaciones del contacto"}
-              defaultOpen={false}
+              defaultOpen={true}
             />
 
             {meta?.bsaleNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.bsaleNote}</div>}

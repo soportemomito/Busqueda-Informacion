@@ -160,7 +160,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         // Obtener historial previo para no perder arrays ni el resumen si ya existen
         const { data: existing } = await supabase
           .from('conversation_summaries')
-          .select('ai_summary, extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders, extracted_device_models')
+          .select('ai_summary, extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders, extracted_device_models, extracted_address')
           .eq('conversation_id', conversationId)
           .single();
 
@@ -172,6 +172,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const currentRuts    = new Set();
         const currentComunas = new Set();
         const currentFallas  = new Set();
+        let currentAddress   = existing?.extracted_address || null;
 
         // 1. Extraer desde atributos personalizados de Chatwoot (donde la IA de Chatwoot o el agente escribe información)
         const customAttrs = {
@@ -221,6 +222,9 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const mVal = customAttrs.modelo || customAttrs.modelo_dispositivo;
         if (mVal) currentModels.add(String(mVal).trim());
 
+        const addrVal = customAttrs.direccion || customAttrs.address;
+        if (addrVal) currentAddress = String(addrVal).trim();
+
         // 2. Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
         const isOutgoing = messageType === '1' || messageType === 'outgoing';
         if (!isOutgoing) {
@@ -231,6 +235,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             if (f.label === 'Modelo') currentModels.add(f.value);
             if (f.label === 'RUT') currentRuts.add(f.value);
             if (f.label === 'Comuna') currentComunas.add(f.value);
+            if (f.label === 'Dirección') currentAddress = f.value;
             if (f.label === 'Falla') currentFallas.add(f.value);
           }
 
@@ -254,6 +259,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           extracted_st_tickets: [...currentSt],
           extracted_shopify_orders: [...currentShopify],
           extracted_device_models: [...currentModels],
+          extracted_address: currentAddress,
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
@@ -277,6 +283,9 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         }
         for (const comuna of currentComunas) {
           allIdentifiers.push({ label: 'Comuna', value: comuna, conversationId, contactId: contact.id });
+        }
+        if (currentAddress) {
+          allIdentifiers.push({ label: 'Dirección', value: currentAddress, conversationId, contactId: contact.id });
         }
         for (const falla of currentFallas) {
           allIdentifiers.push({ label: 'Falla', value: falla, conversationId, contactId: contact.id });
@@ -305,6 +314,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             comuna: [...currentComunas][0] || null,
             falla: [...currentFallas].join(', ') || null,
             resumen: aiSummary || null,
+            direccion: currentAddress || null,
           }).catch((err) => console.error('[chatwoot_writeback] Error en segundo plano:', err.message));
         }
       }
@@ -344,13 +354,14 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         // Obtener historial previo para no perder arrays ni el resumen
         const { data: existing } = await supabase
           .from('conversation_summaries')
-          .select('extracted_imei, extracted_sim, extracted_device_models, contact_name, contact_email, contact_phone')
+          .select('extracted_imei, extracted_sim, extracted_device_models, extracted_address, contact_name, contact_email, contact_phone')
           .eq('conversation_id', conversationId)
           .single();
 
         const currentImeis = new Set(existing?.extracted_imei || []);
         const currentSims = new Set(existing?.extracted_sim || []);
         const currentModels = new Set(existing?.extracted_device_models || []);
+        let currentAddress = existing?.extracted_address || null;
 
         const rVal = cleanRut(customAttributes.rut);
         const cVal = customAttributes.comuna ? String(customAttributes.comuna).trim() : null;
@@ -358,15 +369,18 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const iVal = parsedImei(customAttributes.imei || customAttributes.extracted_imei);
         const sVal = parsedSim(customAttributes.sim || customAttributes.extracted_sim);
         const mVal = customAttributes.modelo || customAttributes.modelo_dispositivo ? String(customAttributes.modelo || customAttributes.modelo_dispositivo).trim() : null;
+        const addrVal = customAttributes.direccion || customAttributes.address ? String(customAttributes.direccion || customAttributes.address).trim() : null;
 
         if (iVal) currentImeis.add(iVal);
         if (sVal) currentSims.add(sVal);
         if (mVal) currentModels.add(mVal);
+        if (addrVal) currentAddress = addrVal;
 
-        if (aiSummary || rVal || cVal || fVal || iVal || sVal || mVal) {
+        if (aiSummary || rVal || cVal || fVal || iVal || sVal || mVal || addrVal) {
           updates.extracted_imei = [...currentImeis];
           updates.extracted_sim = [...currentSims];
           updates.extracted_device_models = [...currentModels];
+          updates.extracted_address = currentAddress;
           updates.updated_at = new Date().toISOString();
 
           await supabase.from('conversation_summaries')
@@ -380,6 +394,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           if (mVal) allIdentifiers.push({ label: 'Modelo', value: mVal, conversationId });
           if (rVal) allIdentifiers.push({ label: 'RUT', value: rVal, conversationId });
           if (cVal) allIdentifiers.push({ label: 'Comuna', value: cVal, conversationId });
+          if (addrVal) allIdentifiers.push({ label: 'Dirección', value: addrVal, conversationId });
           if (fVal) allIdentifiers.push({ label: 'Falla', value: fVal, conversationId });
 
           const contactName = payload.meta?.sender?.name || existing?.contact_name || null;

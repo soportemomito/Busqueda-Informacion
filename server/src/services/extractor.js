@@ -72,15 +72,32 @@ const PATTERNS = [
   {
     // Comuna / Localidad
     type: 'comuna',
-    re: /\b(?:comuna|despacho|direcci[oó]n|env[ií]o|envia|enviar|casa|st|servicio\s+t[eé]cnico)\s+(?:a|de|en)?\s*:?\s*([a-záéíóúñ\s]{3,30})\b/gi,
+    re: /\b(?:comuna|despacho|direcci[oó]n|env[ií]o|envia|enviar|casa|st|servicio\s+t[eé]cnico)\s+(?:a|de|en)?\s*:?\s*([a-záéíóúñ\s]{3,30})/gi,
     normalize: (_, g1) => {
       const val = g1.replace(/\s+/g, ' ').trim().toLowerCase();
+      const cleanText = (str) => str.toLowerCase()
+        .replace(/[áäàâ]/g, 'a')
+        .replace(/[éëèê]/g, 'e')
+        .replace(/[íïìî]/g, 'i')
+        .replace(/[óöòô]/g, 'o')
+        .replace(/[úüùû]/g, 'u');
+      const normVal = cleanText(val);
       // Si la palabra capturada está en la lista de comunas, capitalizarla bonito
-      const found = COMUNAS_CHILE.find(c => c === val || c.replace(/[áéíóú]/g, 'a') === val);
+      const found = COMUNAS_CHILE.find(c => c === val || cleanText(c) === normVal);
       if (found) {
         return found.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       }
-      return g1.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      return null; // Si no es una comuna chilena válida, se descarta
+    }
+  },
+  {
+    // Dirección / Domicilio del cliente
+    type: 'direccion',
+    re: /(?:direcci[oó]n|domicilio|calle|pasaje|avenida)(?:\s*(?:de|del)?\s*(?:env[ií]o|despacho|casa|cliente))?\s*[:\-–—\s]+\s*([a-z0-9áéíóúñ\s#,.°/\-–—]{5,80})/gi,
+    normalize: (_, g1) => {
+      return g1.replace(/\s+/g, ' ').trim().split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
     }
   }
 ];
@@ -103,6 +120,7 @@ export function extractEntities(text) {
     while ((match = regex.exec(text)) !== null) {
       const raw_value = match[0];
       const normalized_value = normalize(match[0], match[1] ?? match[0]);
+      if (normalized_value === null) continue; // Descartar si el normalizador falló o no corresponde
       const key = `${type}:${normalized_value}`;
       if (seen.has(key)) continue;
       seen.add(key);

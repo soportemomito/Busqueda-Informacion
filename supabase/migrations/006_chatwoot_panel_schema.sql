@@ -88,12 +88,14 @@ create table if not exists public.conversation_summaries (
   extracted_st_tickets     text[],
   extracted_shopify_orders text[],
   extracted_device_models  text[],
+  extracted_address        text,
   last_message_at          timestamptz,
   updated_at               timestamptz default now()
 );
 
 -- Asegurar idempotencia si la tabla ya existía sin la columna de modelos extraídos
 alter table public.conversation_summaries add column if not exists extracted_device_models text[];
+alter table public.conversation_summaries add column if not exists extracted_address text;
 
 create index if not exists conversation_summaries_contact_idx on public.conversation_summaries (contact_id);
 create index if not exists conversation_summaries_imei_idx on public.conversation_summaries using gin(extracted_imei);

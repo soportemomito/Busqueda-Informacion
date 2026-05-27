@@ -35,6 +35,7 @@ export async function writeAttributesToChatwoot(creds, accountId, contactId, con
   const contactAttrs = {};
   if (attributes.rut) contactAttrs.rut = attributes.rut;
   if (attributes.comuna) contactAttrs.comuna = attributes.comuna;
+  if (attributes.direccion) contactAttrs.direccion = attributes.direccion;
 
   const convAttrs = {};
   if (attributes.falla) convAttrs.tipo_falla = attributes.falla;
