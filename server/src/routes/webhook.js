@@ -2,6 +2,9 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Router } from 'express';
 import { getSupabase, upsertDeviceFacts } from '../lib/supabase.js';
 import { extractDeviceFactsFromText } from '../lib/extractDeviceFacts.js';
+import { generateLocalHeuristicSummary } from '../services/gemini.js';
+import { resolveCredentials } from '../lib/resolveCredentials.js';
+import { writeAttributesToChatwoot } from '../services/chatwoot_writeback.js';
 
 export const webhookRouter = Router();
 
@@ -100,6 +103,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         return;
       }
 
+      const creds = await resolveCredentials(supabase).catch(() => null);
+
       const event = payload.event;
       
       // Manejar message_created
@@ -136,6 +141,21 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         if (!aiSummary && content) {
           aiSummary = extractSummaryFromMessageContent(content);
         }
+
+        // Si sigue vacío, generamos un resumen heurístico local a partir del historial del ticket
+        if (!aiSummary) {
+          const { data: convMessages } = await supabase
+            .from('chatwoot_messages')
+            .select('content, message_type, sender_type')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: true });
+
+          const messagesForSummary = convMessages && convMessages.length > 0 
+            ? convMessages 
+            : [{ content, message_type: messageType, sender_type: senderType }];
+          
+          aiSummary = generateLocalHeuristicSummary(messagesForSummary);
+        }
         
         // Obtener historial previo para no perder arrays ni el resumen si ya existen
         const { data: existing } = await supabase
@@ -149,8 +169,59 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const currentSt      = new Set(existing?.extracted_st_tickets || []);
         const currentShopify = new Set(existing?.extracted_shopify_orders || []);
         const currentModels  = new Set(existing?.extracted_device_models || []);
+        const currentRuts    = new Set();
+        const currentComunas = new Set();
+        const currentFallas  = new Set();
 
-        // Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
+        // 1. Extraer desde atributos personalizados de Chatwoot (donde la IA de Chatwoot o el agente escribe información)
+        const customAttrs = {
+          ...(conversation.custom_attributes || {}),
+          ...(contact.custom_attributes || {})
+        };
+
+        const cleanRut = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/[\s.-]/g, '').toUpperCase();
+          if (clean.length < 8) return null;
+          const num = clean.slice(0, -1);
+          const dv = clean.slice(-1);
+          return `${num}-${dv}`;
+        };
+
+        const parsedImei = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/\D/g, '');
+          return clean.length === 15 && clean.startsWith('8') ? clean : null;
+        };
+
+        const parsedSim = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/\D/g, '');
+          return clean.length >= 19 ? clean : null;
+        };
+
+        const rVal = cleanRut(customAttrs.rut);
+        if (rVal) currentRuts.add(rVal);
+
+        if (customAttrs.comuna) {
+          currentComunas.add(String(customAttrs.comuna).trim());
+        }
+
+        const fVal = customAttrs.falla || customAttrs.tipo_falla;
+        if (fVal) {
+          currentFallas.add(String(fVal).trim());
+        }
+
+        const iVal = parsedImei(customAttrs.imei || customAttrs.extracted_imei);
+        if (iVal) currentImeis.add(iVal);
+
+        const sVal = parsedSim(customAttrs.sim || customAttrs.extracted_sim);
+        if (sVal) currentSims.add(sVal);
+
+        const mVal = customAttrs.modelo || customAttrs.modelo_dispositivo;
+        if (mVal) currentModels.add(String(mVal).trim());
+
+        // 2. Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
         const isOutgoing = messageType === '1' || messageType === 'outgoing';
         if (!isOutgoing) {
           const facts = extractDeviceFactsFromText(content);
@@ -158,6 +229,9 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             if (f.label === 'ID / IMEI') currentImeis.add(f.value);
             if (f.label === 'ICCID / SIM') currentSims.add(f.value);
             if (f.label === 'Modelo') currentModels.add(f.value);
+            if (f.label === 'RUT') currentRuts.add(f.value);
+            if (f.label === 'Comuna') currentComunas.add(f.value);
+            if (f.label === 'Falla') currentFallas.add(f.value);
           }
 
           const newSt = extractStOrdersFromText(content);
@@ -198,6 +272,15 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         for (const sm of currentShopify) {
           allIdentifiers.push({ label: 'Pedido Shopify', value: sm, conversationId, contactId: contact.id });
         }
+        for (const rut of currentRuts) {
+          allIdentifiers.push({ label: 'RUT', value: rut, conversationId, contactId: contact.id });
+        }
+        for (const comuna of currentComunas) {
+          allIdentifiers.push({ label: 'Comuna', value: comuna, conversationId, contactId: contact.id });
+        }
+        for (const falla of currentFallas) {
+          allIdentifiers.push({ label: 'Falla', value: falla, conversationId, contactId: contact.id });
+        }
         if (contactEmail) {
           allIdentifiers.push({ label: 'Email', value: contactEmail, conversationId, contactId: contact.id });
         }
@@ -211,18 +294,105 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         if (allIdentifiers.length > 0) {
           await upsertDeviceFacts(supabase, allIdentifiers);
         }
+
+        // Sincronizar de vuelta a Chatwoot (Write-Back) de forma gratuita en segundo plano
+        if (creds) {
+          const cwAccountId = payload.account?.id || payload.conversation?.account_id || 1;
+          const cwContactId = payload.sender?.id || payload.conversation?.meta?.sender?.id;
+          
+          writeAttributesToChatwoot(creds, cwAccountId, cwContactId, conversationId, {
+            rut: [...currentRuts][0] || null,
+            comuna: [...currentComunas][0] || null,
+            falla: [...currentFallas].join(', ') || null,
+            resumen: aiSummary || null,
+          }).catch((err) => console.error('[chatwoot_writeback] Error en segundo plano:', err.message));
+        }
       }
 
-      // Podríamos manejar conversation_updated aquí si queremos actualizar el resumen AI cuando cambia
+      // Sincronizar cambios cuando Chatwoot AI o el agente editen atributos de conversación o contacto
       if (event === 'conversation_updated') {
         const conversationId = payload.id;
-        const aiSummary = extractAiSummary(payload.custom_attributes);
-        
-        if (conversationId && aiSummary) {
-          // Actualizar solo el ai_summary si existe
+        const customAttributes = payload.custom_attributes || {};
+        const aiSummary = extractAiSummary(customAttributes);
+
+        const updates = {};
+        if (aiSummary) {
+          updates.ai_summary = aiSummary;
+        }
+
+        const cleanRut = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/[\s.-]/g, '').toUpperCase();
+          if (clean.length < 8) return null;
+          const num = clean.slice(0, -1);
+          const dv = clean.slice(-1);
+          return `${num}-${dv}`;
+        };
+
+        const parsedImei = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/\D/g, '');
+          return clean.length === 15 && clean.startsWith('8') ? clean : null;
+        };
+
+        const parsedSim = (val) => {
+          if (!val) return null;
+          const clean = String(val).replace(/\D/g, '');
+          return clean.length >= 19 ? clean : null;
+        };
+
+        // Obtener historial previo para no perder arrays ni el resumen
+        const { data: existing } = await supabase
+          .from('conversation_summaries')
+          .select('extracted_imei, extracted_sim, extracted_device_models, contact_name, contact_email, contact_phone')
+          .eq('conversation_id', conversationId)
+          .single();
+
+        const currentImeis = new Set(existing?.extracted_imei || []);
+        const currentSims = new Set(existing?.extracted_sim || []);
+        const currentModels = new Set(existing?.extracted_device_models || []);
+
+        const rVal = cleanRut(customAttributes.rut);
+        const cVal = customAttributes.comuna ? String(customAttributes.comuna).trim() : null;
+        const fVal = customAttributes.falla || customAttributes.tipo_falla ? String(customAttributes.falla || customAttributes.tipo_falla).trim() : null;
+        const iVal = parsedImei(customAttributes.imei || customAttributes.extracted_imei);
+        const sVal = parsedSim(customAttributes.sim || customAttributes.extracted_sim);
+        const mVal = customAttributes.modelo || customAttributes.modelo_dispositivo ? String(customAttributes.modelo || customAttributes.modelo_dispositivo).trim() : null;
+
+        if (iVal) currentImeis.add(iVal);
+        if (sVal) currentSims.add(sVal);
+        if (mVal) currentModels.add(mVal);
+
+        if (aiSummary || rVal || cVal || fVal || iVal || sVal || mVal) {
+          updates.extracted_imei = [...currentImeis];
+          updates.extracted_sim = [...currentSims];
+          updates.extracted_device_models = [...currentModels];
+          updates.updated_at = new Date().toISOString();
+
           await supabase.from('conversation_summaries')
-            .update({ ai_summary: aiSummary, updated_at: new Date().toISOString() })
+            .update(updates)
             .eq('conversation_id', conversationId);
+
+          // También registrar nuevos hechos en la base de datos para cruce rápido
+          const allIdentifiers = [];
+          if (iVal) allIdentifiers.push({ label: 'ID / IMEI', value: iVal, conversationId });
+          if (sVal) allIdentifiers.push({ label: 'ICCID / SIM', value: sVal, conversationId });
+          if (mVal) allIdentifiers.push({ label: 'Modelo', value: mVal, conversationId });
+          if (rVal) allIdentifiers.push({ label: 'RUT', value: rVal, conversationId });
+          if (cVal) allIdentifiers.push({ label: 'Comuna', value: cVal, conversationId });
+          if (fVal) allIdentifiers.push({ label: 'Falla', value: fVal, conversationId });
+
+          const contactName = payload.meta?.sender?.name || existing?.contact_name || null;
+          const contactEmail = payload.meta?.sender?.email || existing?.contact_email || null;
+          const contactPhone = payload.meta?.sender?.phone_number || existing?.contact_phone || null;
+
+          if (contactEmail) allIdentifiers.push({ label: 'Email', value: contactEmail, conversationId });
+          if (contactPhone) allIdentifiers.push({ label: 'Teléfono', value: contactPhone, conversationId });
+          if (contactName) allIdentifiers.push({ label: 'Nombre', value: contactName, conversationId });
+
+          if (allIdentifiers.length > 0) {
+            await upsertDeviceFacts(supabase, allIdentifiers);
+          }
         }
       }
 

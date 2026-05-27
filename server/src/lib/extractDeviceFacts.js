@@ -1,10 +1,4 @@
-/**
- * Extrae pares tipo "Modelo: X" / IMEI desde texto de tickets ST (español).
- * No es IA: regex sobre mensajes para mostrar tablita rápida en la UI.
- */
-
-// SoyMomo product catalogue for inline detection (without a "Modelo:" label)
-const SOYMOMO_MODEL_RE = /\b(?:SoyMomo\s+)?(?:Space\s+[1-9](?:\.\d+)?(?:\s+Lite)?|Baby\s+Monitor(?:\s+(?:Lite|Pro(?:\s+2)?))?|Tablet(?:\s+(?:Lite(?:\s+[23])?|Pro(?:\s+2)?))?|Momophone(?:\s+Pro)?)\b/gi;
+import { extractEntities } from '../services/extractor.js';
 
 const PAIRS = [
   [/modelo(?:\s*(?:de|del)?\s*(?:reloj|dispositivo|producto))?\s*:\s*([^\n]+)/gi, 'Modelo'],
@@ -37,6 +31,7 @@ export function extractDeviceFactsFromText(text) {
   const out = [];
   const seen = new Set();
   
+  // 1. Explicit key-value pairs (Color, Serial, SKU, etc.)
   for (const [re, label] of PAIRS) {
     re.lastIndex = 0;
     let m;
@@ -47,57 +42,45 @@ export function extractDeviceFactsFromText(text) {
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ label, value });
+    }
+  }
 
-      // Si es un IMEI de 15 dígitos que empieza con 8, derivar e indexar también el ID de 10 dígitos
-      if (label === 'ID / IMEI' && value.length === 15 && value.startsWith('8')) {
-        const derived = value.slice(4, -1);
-        const derivedKey = `ID / IMEI:${derived}`;
-        if (!seen.has(derivedKey)) {
-          seen.add(derivedKey);
-          out.push({ label: 'ID / IMEI', value: derived });
+  // 2. Centralized extractor engine entities (IMEI, SIM, Model, RUT, Comuna, Failure tags)
+  const entities = extractEntities(text);
+  for (const e of entities) {
+    let label = '';
+    let val = e.normalized_value;
+    
+    if (e.entity_type === 'imei') {
+      label = 'ID / IMEI';
+    } else if (e.entity_type === 'sim_id') {
+      label = 'ICCID / SIM';
+    } else if (e.entity_type === 'device_model') {
+      label = 'Modelo';
+    } else if (e.entity_type === 'rut') {
+      label = 'RUT';
+    } else if (e.entity_type === 'comuna') {
+      label = 'Comuna';
+    } else if (e.entity_type === 'failure_keyword') {
+      label = 'Falla';
+    }
+
+    if (label) {
+      const key = `${label}:${val.toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ label, value: val });
+
+        // IMEI sub-derivations (10-digit ID)
+        if (label === 'ID / IMEI' && val.length === 15 && val.startsWith('8')) {
+          const derived = val.slice(4, -1);
+          const derivedKey = `ID / IMEI:${derived}`;
+          if (!seen.has(derivedKey)) {
+            seen.add(derivedKey);
+            out.push({ label: 'ID / IMEI', value: derived });
+          }
         }
       }
-    }
-  }
-
-  // Loose IMEI: any 15-digit number starting with 8 (with or without "IMEI:" prefix)
-  for (const m of (text.match(/\b(8\d{14})\b/g) || [])) {
-    const key = `ID / IMEI:${m}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push({ label: 'ID / IMEI', value: m });
-      // Derived 10-digit device ID: remove first 4 and last digit
-      const derived = m.slice(4, -1);
-      const derivedKey = `ID / IMEI:${derived}`;
-      if (!seen.has(derivedKey)) {
-        seen.add(derivedKey);
-        out.push({ label: 'ID / IMEI', value: derived });
-      }
-    }
-  }
-
-  // ICCID suelto: número de 19-20 dígitos que empieza con 89 (prefijo estándar SIM)
-  for (const m of (text.match(/\b(89\d{17,18})\b/g) || [])) {
-    const key = `ICCID / SIM:${m}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push({ label: 'ICCID / SIM', value: m });
-    }
-  }
-
-  // Inline SoyMomo product model (no "Modelo:" prefix required)
-  const modelRe = new RegExp(SOYMOMO_MODEL_RE.source, SOYMOMO_MODEL_RE.flags);
-  let mm;
-  while ((mm = modelRe.exec(text)) !== null) {
-    const value = mm[0].replace(/\s+/g, ' ').trim();
-    const key = `Modelo:${value.toLowerCase()}`;
-    // Skip if already captured via the "Modelo: X" label pattern
-    const alreadyCaptured = out.some(
-      r => r.label === 'Modelo' && r.value.toLowerCase().includes(value.toLowerCase())
-    );
-    if (!seen.has(key) && !alreadyCaptured) {
-      seen.add(key);
-      out.push({ label: 'Modelo', value });
     }
   }
 

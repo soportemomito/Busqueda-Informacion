@@ -1,6 +1,29 @@
 // SoyMomo product catalogue for inline model detection
 const SOYMOMO_MODEL_RE = /\b(?:SoyMomo\s+)?(?:Space\s+[1-9](?:\.\d+)?(?:\s+Lite)?|Baby\s+Monitor(?:\s+(?:Lite|Pro(?:\s+2)?))?|Tablet(?:\s+(?:Lite(?:\s+[23])?|Pro(?:\s+2)?))?|Momophone(?:\s+Pro)?)\b/gi;
 
+// Chilean Comunas dictionary for semantic mapping
+const COMUNAS_CHILE = [
+  'santiago', 'las condes', 'providencia', 'maipu', 'maipú', 'puente alto', 'la florida', 'viña del mar',
+  'viña', 'ñuñoa', 'nunoa', 'peñalolén', 'peñalolen', 'colina', 'lampa', 'lo barnechea', 'vitacura',
+  'la reina', 'san miguel', 'macul', 'estación central', 'estacion central', 'independencia', 'recoleta',
+  'conchalí', 'conchali', 'quilicura', 'pudahuel', 'cerro navia', 'quinta normal', 'renca', 'lo prado',
+  'cerrillos', 'pedro aguirre cerda', 'san joaquín', 'san joaquin', 'la granja', 'san ramón', 'san ramon',
+  'la pintana', 'el bosque', 'lo espejo', 'san bernardo', 'pirque', 'san josé de maipo', 'buin', 'paine',
+  'talagante', 'peñaflor', 'isla de maipo', 'melipilla', 'curacaví', 'curacavi', 'maria pinto', 'rancagua',
+  'concepcion', 'concepción', 'antofagasta', 'valparaiso', 'valparaíso', 'temuco', 'laserena', 'la serena',
+  'coquimbo', 'iquique', 'antofagasta', 'talca', 'chillan', 'chillán', 'osorno', 'valdivia', 'puerto montt'
+];
+
+const FAILURE_PATTERNS = [
+  { type: 'Batería/Carga', re: /\b(?:bater[ií]a|cargador|carga|no\s+carga|se\s+descarga|descarg[oó]|bateria)\b/i },
+  { type: 'Pantalla', re: /\b(?:pantalla|vidrio|t[aá]ctil|quebrad[oa]|rot[oa]|táctil|tactil)\b/i },
+  { type: 'Señal/SIM', re: /\b(?:se[nñ]al|cobertura|chip|sim|no\s+conecta|red|antena|datos|cobertura)\b/i },
+  { type: 'GPS/Ubicación', re: /\b(?:gps|ubica|ubicaci[oó]n|mapa|no\s+ubica|desfasad[oa]|ubicacion)\b/i },
+  { type: 'Encendido/Boot', re: /\b(?:no\s+prende|no\s+enciende|bot[oó]n|se\s+apaga|boton|prendido|prendo)\b/i },
+  { type: 'Audio/Micrófono', re: /\b(?:parlante|micr[oó]fono|audio|no\s+escucha|ruido|sonido|microfono|habla)\b/i },
+  { type: 'Aplicación/App', re: /\b(?:app|aplicaci[oó]n|configurar|enlazar|qr|emparejar|vincular|vincula|aplicacion)\b/i }
+];
+
 const PATTERNS = [
   {
     // Any 15-digit number starting with 8 is treated as IMEI
@@ -35,6 +58,31 @@ const PATTERNS = [
     re: /modelo(?:\s*(?:de|del)?\s*(?:reloj|dispositivo|producto))?\s*:\s*([^\n]{3,60})/gi,
     normalize: (_, g1) => g1.replace(/\s+/g, ' ').trim(),
   },
+  {
+    // Chilean RUT (con o sin puntos/guiones)
+    type: 'rut',
+    re: /\b(\d{1,2}(?:\.?\d{3}){2}\-?[\dkK]|\d{7,8}\-?[\dkK])\b/g,
+    normalize: (_, g1) => {
+      const clean = g1.replace(/[\s.-]/g, '').toUpperCase();
+      const num = clean.slice(0, -1);
+      const dv = clean.slice(-1);
+      return `${num}-${dv}`;
+    }
+  },
+  {
+    // Comuna / Localidad
+    type: 'comuna',
+    re: /\b(?:comuna|despacho|direcci[oó]n|env[ií]o|envia|enviar|casa|st|servicio\s+t[eé]cnico)\s+(?:a|de|en)?\s*:?\s*([a-záéíóúñ\s]{3,30})\b/gi,
+    normalize: (_, g1) => {
+      const val = g1.replace(/\s+/g, ' ').trim().toLowerCase();
+      // Si la palabra capturada está en la lista de comunas, capitalizarla bonito
+      const found = COMUNAS_CHILE.find(c => c === val || c.replace(/[áéíóú]/g, 'a') === val);
+      if (found) {
+        return found.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      }
+      return g1.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+  }
 ];
 
 /**
@@ -77,6 +125,17 @@ export function extractEntities(text) {
     if (duplicate) continue;
     seen.add(key);
     results.push({ entity_type: 'device_model', raw_value: m[0], normalized_value });
+  }
+
+  // Failure Keyword Detection
+  for (const f of FAILURE_PATTERNS) {
+    if (f.re.test(text)) {
+      const key = `failure_keyword:${f.type}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push({ entity_type: 'failure_keyword', raw_value: f.type, normalized_value: f.type });
+      }
+    }
   }
 
   return results;

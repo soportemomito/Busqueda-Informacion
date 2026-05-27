@@ -284,7 +284,7 @@ async function fromDbDevices(ctx, db, imeis) {
   }
 }
 
-const SERVICE_ORDERS_SELECT = 'id, order_number, status, technician, received_at, device_id, contact_name, contact_email, report_url';
+const SERVICE_ORDERS_SELECT = 'id, order_number, status, technician, received_at, device_id, contact_name, contact_email, report_url, entry_report_url';
 
 async function fromDbServiceOrders(ctx, db, orderNumbers) {
   const { data } = await db.from('service_orders')

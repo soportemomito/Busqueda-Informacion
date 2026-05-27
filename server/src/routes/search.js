@@ -535,7 +535,7 @@ searchRouter.get('/', async (req, res) => {
       try {
         const { data: dbOrders } = await supabase
           .from('service_orders')
-          .select('id, order_number, status, technician, received_at, entry_date, exit_date, check_in_notes, check_out_notes, solution, imei_sim, report_url, sheet_row_url, contact_name, contact_email')
+          .select('id, order_number, status, technician, received_at, entry_date, exit_date, check_in_notes, check_out_notes, solution, imei_sim, report_url, entry_report_url, sheet_row_url, contact_name, contact_email')
           .or(orConditions.join(','));
         if (dbOrders) {
           serviceOrdersList = dbOrders;

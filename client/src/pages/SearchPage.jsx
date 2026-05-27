@@ -182,74 +182,7 @@ function CopyableValue({ value, children }) {
   );
 }
 
-// ─── profile card ─────────────────────────────────────────────────────────────
 
-function ProfileCard({ meta, bsBlock, cwBlock, conversationId }) {
-  const cs = meta?.contactSummary;
-  const facts = meta?.equipmentFacts || [];
-
-  const rows = [];
-  const name = cs?.name || cwBlock?.data?.contacts?.[0]?.name;
-  if (name) rows.push({ icon: '👤', label: 'Nombre', value: name });
-  const email = cs?.email;
-  if (email) rows.push({ icon: '✉️', label: 'Correo', value: email, copy: true });
-  const phone = cs?.phone || cwBlock?.data?.contacts?.[0]?.phone;
-  if (phone) rows.push({ icon: '📱', label: 'Teléfono', value: phone, copy: true });
-  const rut = (cs?.ruts?.[0]) || facts.find((f) => f.label === 'RUT')?.value;
-  if (rut) rows.push({ icon: '🪪', label: 'RUT', value: rut, copy: true });
-  const smOrders = cs?.smOrders || cwBlock?.data?.shopifyOrdersFromMessages || [];
-  if (smOrders.length) rows.push({ icon: '📦', label: 'N° Pedido', value: smOrders.join('  ·  '), copy: true });
-  const bsaleItem = bsBlock?.data?.items?.[0];
-  if (bsaleItem) rows.push({ icon: '🧾', label: 'Boleta', value: `N° ${bsaleItem.number}`, link: bsaleItem.urlPublicView || null });
-  const imei = facts.find((f) => f.label === 'ID / IMEI')?.value;
-  if (imei) rows.push({ icon: '📡', label: 'IMEI', value: imei, copy: true });
-  const sim = facts.find((f) => f.label === 'ICCID / SIM')?.value;
-  if (sim) rows.push({ icon: '💳', label: 'N° SIM', value: sim, copy: true });
-
-  const [sendingNote, setSendingNote] = useState(false);
-  const handleSendNote = async () => {
-    if (!conversationId) return;
-    setSendingNote(true);
-    let md = `### 📋 Datos ST Consolidados del Cliente\n\n`;
-    rows.forEach(r => {
-      md += `* **${r.label}:** ${r.value}\n`;
-    });
-    md += `\n*Ficha enviada automáticamente desde el panel ST.*`;
-    try {
-      await postPrivateNote(conversationId, md);
-      alert('✅ Ficha enviada como nota interna correctamente!');
-    } catch (err) {
-      alert(`❌ Error al enviar nota: ${err.message}`);
-    } finally {
-      setSendingNote(false);
-    }
-  };
-
-  if (!rows.length) return null;
-
-  return (
-    <div className="mb-4 rounded-2xl border border-momo-100 bg-white/90 backdrop-blur-md shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md animate-fade-in">
-      <div className="px-4 py-3 bg-gradient-to-r from-momo-700 to-momo-500 flex items-center justify-between gap-2">
-        <span className="text-white font-semibold text-sm tracking-wide">Perfil del cliente</span>
-      </div>
-      <div className="divide-y divide-slate-100/80">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
-            <span className="text-base shrink-0 w-6 text-center">{r.icon}</span>
-            <span className="text-xs font-semibold text-slate-400 w-20 shrink-0 uppercase tracking-wider">{r.label}</span>
-            <span className="text-sm text-slate-900 flex-1 break-all font-medium">
-              {r.link ? (
-                <a href={r.link} target="_blank" rel="noreferrer" className="text-momo-600 hover:text-momo-800 underline font-semibold transition-colors">{r.value}</a>
-              ) : r.copy ? (
-                <CopyableValue value={r.value}>{r.value}</CopyableValue>
-              ) : r.value}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ─── open tickets ─────────────────────────────────────────────────────────────
 
@@ -439,17 +372,17 @@ function SectionServiceOrders({ block }) {
                 )}
               </div>
 
-              <div className="flex gap-1.5 shrink-0 self-start">
+              <div className="flex flex-wrap gap-1.5 shrink-0 self-start">
+                {row.entry_report_url && (
+                  <a href={row.entry_report_url} target="_blank" rel="noreferrer"
+                    className="rounded-xl bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-blue-700 transition-all shadow-sm">
+                    Ver Informe Entrada ↗
+                  </a>
+                )}
                 {row.report_url && (
                   <a href={row.report_url} target="_blank" rel="noreferrer"
                     className="rounded-xl bg-momo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-momo-700 transition-all shadow-sm">
-                    Ver Informe ↗
-                  </a>
-                )}
-                {row.sheet_row_url && (
-                  <a href={row.sheet_row_url} target="_blank" rel="noreferrer"
-                    className="rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold px-3 py-1.5 hover:bg-slate-50 transition-all">
-                    Planilla Sheets ↗
+                    Ver Informe Salida ↗
                   </a>
                 )}
               </div>
@@ -644,11 +577,33 @@ function SectionShopify({ block }) {
   );
 }
 
-// ─── conversation card ────────────────────────────────────────────────────────
-
 function ConversationCard({ row, chatwootApp }) {
   const url = chatwootConversationUrl(chatwootApp, row.conversationId);
   const { label: statusLabel, cls: statusCls } = statusBadge(row.status, row.isOpen);
+
+  // Filtrar fallas y otros facts
+  const fallas = (row.deviceFacts || []).filter(f => f.label === 'Falla');
+  const otherFacts = (row.deviceFacts || []).filter(f => f.label !== 'Falla');
+
+  const fallaStyles = {
+    'Batería/Carga': 'bg-amber-50 border-amber-200 text-amber-800',
+    'Pantalla': 'bg-purple-50 border-purple-200 text-purple-800',
+    'Señal/SIM': 'bg-blue-50 border-blue-200 text-blue-800',
+    'GPS/Ubicación': 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    'Encendido/Boot': 'bg-rose-50 border-rose-200 text-rose-800',
+    'Audio/Micrófono': 'bg-pink-50 border-pink-200 text-pink-800',
+    'Aplicación/App': 'bg-slate-50 border-slate-200 text-slate-800',
+  };
+
+  const fallaIcons = {
+    'Batería/Carga': '🔋',
+    'Pantalla': '📱',
+    'Señal/SIM': '📡',
+    'GPS/Ubicación': '📍',
+    'Encendido/Boot': '🔌',
+    'Audio/Micrófono': '🔊',
+    'Aplicación/App': '⚙️',
+  };
 
   return (
     <div className="px-4 py-3.5 hover:bg-slate-50/30 transition-colors">
@@ -660,6 +615,17 @@ function ConversationCard({ row, chatwootApp }) {
           {row.stTagged && (
             <span className="text-[10px] font-bold border rounded-md px-1.5 py-0.5 bg-momo-50 border-momo-100 text-momo-800">Serv. Técnico</span>
           )}
+          
+          {/* Failure badges */}
+          {fallas.map((f, idx) => {
+            const style = fallaStyles[f.value] || 'bg-slate-50 border-slate-200 text-slate-800';
+            const icon = fallaIcons[f.value] || '⚠️';
+            return (
+              <span key={idx} className={`text-[10px] font-bold border rounded-md px-1.5 py-0.5 ${style}`}>
+                {icon} {f.value}
+              </span>
+            );
+          })}
         </div>
         <span className="text-xs text-slate-400 shrink-0 font-medium">{formatIso(row.date)}</span>
       </div>
@@ -667,7 +633,7 @@ function ConversationCard({ row, chatwootApp }) {
       {/* summary — main content */}
       {row.aiSummary ? (
         <div className="bg-momo-50/60 rounded-xl px-3 py-2.5 mb-2.5 border border-momo-100/50">
-          <p className="text-[9px] font-bold text-momo-600 uppercase tracking-wider mb-0.5">Resumen de Chat IA</p>
+          <p className="text-[9px] font-bold text-momo-600 uppercase tracking-wider mb-0.5">Resumen del Chat</p>
           <p className="text-xs text-slate-700 leading-relaxed font-medium">{row.aiSummary}</p>
         </div>
       ) : (
@@ -675,9 +641,9 @@ function ConversationCard({ row, chatwootApp }) {
       )}
 
       {/* device facts */}
-      {row.deviceFacts?.length > 0 && (
+      {otherFacts.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2.5">
-          {row.deviceFacts.map((f, i) => (
+          {otherFacts.map((f, i) => (
             <span key={i} className="text-[10px] bg-slate-50 border border-slate-200 text-slate-600 rounded-md px-1.5 py-0.5 font-bold transition-all hover:scale-105 duration-200 cursor-default">
               {f.label}: {f.value}
             </span>
@@ -771,12 +737,39 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const phone = summary?.contact_phone || meta?.contactSummary?.phone || null;
 
   // Identifiers extraídos de mensajes
-  const imeis = (summary?.extracted_imei || []).filter(v => v.length === 15); // only full IMEIs
-  const deviceIds = (summary?.extracted_imei || [])
+  let imeis = (summary?.extracted_imei || []).filter(v => v.length === 15); // only full IMEIs
+  let deviceIds = (summary?.extracted_imei || [])
     .filter(v => v.length === 15 && v.startsWith('8'))
     .map(v => v.slice(4, -1)); // derived 10-digit ID: remove first 4 + last digit
-  const sims   = summary?.extracted_sim || [];
-  const models = summary?.extracted_device_models || [];
+  let sims   = summary?.extracted_sim || [];
+  let models = summary?.extracted_device_models || [];
+
+  // Fallback a metadatos de búsqueda cuando no existe resumen de Chatwoot (búsqueda manual o standalone)
+  if (!summary && meta?.equipmentFacts) {
+    const facts = meta.equipmentFacts || [];
+    const extractedImeis = facts.filter(f => f.label === 'ID / IMEI').map(f => f.value);
+    if (extractedImeis.length) {
+      imeis = extractedImeis;
+      deviceIds = imeis.filter(v => v.length === 15 && v.startsWith('8')).map(v => v.slice(4, -1));
+    }
+    const extractedSims = facts.filter(f => f.label === 'ICCID / SIM').map(f => f.value);
+    if (extractedSims.length) {
+      sims = extractedSims;
+    }
+    const extractedModels = facts.filter(f => f.label?.toLowerCase() === 'modelo' || f.label?.toLowerCase() === 'dispositivo').map(f => f.value);
+    if (extractedModels.length) {
+      models = [...new Set(extractedModels)];
+    }
+  }
+
+  // Extraer RUT y Comuna desde los hechos de equipo
+  let ruts = [];
+  let comunas = [];
+  if (meta?.equipmentFacts) {
+    const facts = meta.equipmentFacts || [];
+    ruts = [...new Set(facts.filter(f => f.label === 'RUT').map(f => f.value))];
+    comunas = [...new Set(facts.filter(f => f.label === 'Comuna').map(f => f.value))];
+  }
 
   // Datos en vivo de search
   const openTickets = meta?.openConversations || [];
@@ -785,7 +778,6 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
 
   const idLoading = isSummaryLoading;
   const liveLoading = isSearchLoading;
-
   // Generar nota interna
   const [sending, setSending] = useState(false);
   const handleSendFichaNote = async () => {
@@ -794,7 +786,9 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     let md = `### 📋 Ficha ST Consolidada del Cliente\n\n`;
     if (name) md += `👤 **Nombre:** ${name}\n`;
     if (email) md += `✉️ **Correo:** ${email}\n`;
-    if (phone) md += `📱 **Teléfono:** ${phone}\n`;
+    if (phone) md += `📱 **WhatsApp:** ${phone}\n`;
+    if (ruts.length) md += `🪪 **RUT:** ${ruts.join(', ')}\n`;
+    if (comunas.length) md += `📍 **Comuna:** ${comunas.join(', ')}\n`;
     if (models.length) md += `📱 **Modelo:** ${models.join(', ')}\n`;
     if (imeis.length) md += `📡 **IMEI:** ${imeis.join(', ')}\n`;
     if (deviceIds.length) md += `🔑 **ID dispositivo:** ${deviceIds.join(', ')}\n`;
@@ -812,7 +806,6 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       setSending(false);
     }
   };
-
   // Toggle de etiqueta ST
   const [tagging, setTagging] = useState(false);
   const activeTicket = openTickets.find(o => o.conversationId === conversationId);
@@ -862,10 +855,23 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       <FichaRow icon="✉️" label="Correo" loading={idLoading}>
         {email ? <CopyableValue value={email} /> : <Empty />}
       </FichaRow>
-
       <FichaRow icon="📱" label="WhatsApp" loading={idLoading}>
         {phone ? <CopyableValue value={phone} /> : <Empty />}
       </FichaRow>
+
+      {ruts.length > 0 && (
+        <FichaRow icon="🪪" label="RUT" loading={idLoading}>
+          <div className="space-y-1">{ruts.map((v) => <CopyableValue key={v} value={v} />)}</div>
+        </FichaRow>
+      )}
+
+      {comunas.length > 0 && (
+        <FichaRow icon="📍" label="Comuna" loading={idLoading}>
+          <div className="space-y-1">{comunas.map((v) => (
+            <span key={v} className="inline-block text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-2 py-0.5">{v}</span>
+          ))}</div>
+        </FichaRow>
+      )}
 
       <FichaRow icon="📱" label="Modelo dispositivo" loading={idLoading}>
         {models.length
@@ -893,13 +899,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
           : <Empty />}
       </FichaRow>
 
-      {/* ── resumen IA ── */}
-      <FichaRow icon="✨" label="Resumen de IA" loading={idLoading}>
+      {/* ── resumen chat ── */}
+      <FichaRow icon="✨" label="Resumen del Chat" loading={idLoading}>
         {summary?.ai_summary
           ? <p className="text-xs text-slate-700 leading-relaxed font-semibold bg-slate-50 border border-slate-100 rounded-xl p-2.5">{summary.ai_summary}</p>
-          : <span className="text-xs text-slate-400 italic">No hay un resumen generado en Chatwoot. Usa el asistente IA oficial de Chatwoot en el panel del ticket.</span>}
+          : <span className="text-xs text-slate-400 italic">No hay un resumen disponible para este ticket. Envía un mensaje para generarlo automáticamente de forma gratuita.</span>}
       </FichaRow>
-
       {/* ── tickets abiertos ── */}
       <FichaRow icon="🎫" label="Tickets Abiertos" loading={liveLoading}>
         {openTickets.length ? (
@@ -978,9 +983,9 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
                 {row.entry_date && <p className="text-[10px] text-slate-400 font-medium mt-1">Entrada: {formatIso(row.entry_date)}</p>}
                 {row.exit_date && <p className="text-[10px] text-slate-400 font-medium">Salida: {formatIso(row.exit_date)}</p>}
                 {row.solution && <p className="text-[10px] text-emerald-900 font-bold mt-1 bg-emerald-50 border border-emerald-100/50 rounded p-1">Solución: {row.solution}</p>}
-                <div className="flex gap-2 mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-momo-600">
-                  {row.report_url && <a href={row.report_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Ver Informe ↗</a>}
-                  {row.sheet_row_url && <a href={row.sheet_row_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Planilla Sheets ↗</a>}
+                <div className="flex gap-3 mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-momo-600">
+                  {row.entry_report_url && <a href={row.entry_report_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Ver Informe Entrada ↗</a>}
+                  {row.report_url && <a href={row.report_url} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Ver Informe Salida ↗</a>}
                 </div>
               </div>
             ))}
@@ -1074,178 +1079,101 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          MODO EMBED — En la barra lateral de Chatwoot
-      ══════════════════════════════════════════════════════════════════ */}
-      {ctxConvId && (
-        <div className="animate-fade-in space-y-4">
-          
-          {/* Banner de búsqueda manual activa */}
-          {isManualSearchActive && (
-            <div className="rounded-2xl border border-momo-200 bg-momo-50/90 p-3.5 backdrop-blur-md shadow-sm flex items-center justify-between gap-3 animate-fade-in">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-momo-950 flex items-center gap-1">
-                  <span>🔍</span> Búsqueda manual activa
-                </p>
-                <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                  Resultados para: <span className="font-mono bg-momo-100 border border-momo-200 text-momo-800 px-1.5 py-0.5 rounded font-bold">{debounced}</span>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInput(`cw ${ctxConvId}`)}
-                className="rounded-xl bg-momo-600 hover:bg-momo-700 text-white text-[10px] font-bold px-3 py-2 transition-all shadow-sm shrink-0 flex items-center gap-1"
-              >
-                <span>⬅️</span> Volver al ticket
-              </button>
+      <div className="animate-fade-in space-y-4">
+        {/* Banner de búsqueda manual activa en modo embebido */}
+        {embed && isManualSearchActive && (
+          <div className="rounded-2xl border border-momo-200 bg-momo-50/90 p-3.5 backdrop-blur-md shadow-sm flex items-center justify-between gap-3 animate-fade-in">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-momo-950 flex items-center gap-1">
+                <span>🔍</span> Búsqueda manual activa
+              </p>
+              <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                Resultados para: <span className="font-mono bg-momo-100 border border-momo-200 text-momo-800 px-1.5 py-0.5 rounded font-bold">{debounced}</span>
+              </p>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setInput(`cw ${ctxConvId}`)}
+              className="rounded-xl bg-momo-600 hover:bg-momo-700 text-white text-[10px] font-bold px-3 py-2 transition-all shadow-sm shrink-0 flex items-center gap-1"
+            >
+              <span>⬅️</span> Volver al ticket
+            </button>
+          </div>
+        )}
 
-          {/* Ficha principal o resultados de búsqueda manual */}
-          {!isManualSearchActive ? (
-            <ClientFicha
-              conversationId={ctxConvId}
-              summaryData={summaryData}
-              isSummaryLoading={isFetchingSummary && !summaryData}
-              searchData={data}
-              isSearchLoading={isFetching}
-              chatwootApp={meta?.chatwootApp}
+        {/* Ficha principal unificada (siempre visible) */}
+        <ClientFicha
+          conversationId={isManualSearchActive ? null : ctxConvId}
+          summaryData={isManualSearchActive ? null : summaryData}
+          isSummaryLoading={!isManualSearchActive && isFetchingSummary && !summaryData}
+          searchData={data}
+          isSearchLoading={isFetching}
+          chatwootApp={meta?.chatwootApp}
+        />
+
+        {/* Cargando (solo en modo standalone para dar feedback de red) */}
+        {!ctxConvId && canSearch && isFetching && (
+          <div className="flex items-center gap-2.5 text-sm font-bold text-momo-700 bg-momo-50 border border-momo-100 rounded-2xl p-4 shadow-sm animate-pulse">
+            <span className="inline-block h-4 w-4 rounded-full border-2 border-momo-500 border-t-transparent animate-spin" />
+            Consolidando información de Chatwoot, Bsale y Shopify...
+          </div>
+        )}
+
+        {/* Errores */}
+        {isError && (
+          <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-xs px-4 py-3 shadow-sm">
+            {error?.message || 'Error al consultar las fuentes de información'}
+          </div>
+        )}
+
+        {/* Estado de fuentes */}
+        {data && <SourceStatusBar data={data} meta={meta} />}
+
+        {/* Banners e información de soporte */}
+        {data && <StBanner meta={meta} />}
+
+        {/* Resultados consolidados y colapsables */}
+        {data && (
+          <div className="space-y-4 mt-3 animate-fade-in">
+            <SectionOpenTickets
+              meta={meta}
+              onResolve={(id) => resolveConversation.mutate(id)}
+              resolving={resolveConversation.isPending}
+              resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
             />
-          ) : (
-            data && <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} conversationId={ctxConvId} />
-          )}
 
-          {/* Errores */}
-          {isError && (
-            <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-xs px-4 py-3 shadow-sm">
-              {error?.message || 'Error al consultar las fuentes de información'}
-            </div>
-          )}
+            <SectionSimilarTickets meta={meta} />
 
-          {/* Estado de fuentes */}
-          {data && <SourceStatusBar data={data} meta={meta} />}
+            <SectionServiceOrders block={data?.service_orders} />
 
-          {/* Resultados consolidados y colapsables */}
-          {data && (
-            <div className="space-y-3 mt-3 animate-fade-in">
-              <SectionSimilarTickets meta={meta} />
-              
-              {/* Solo mostramos boletas y pedidos directos en embed si es búsqueda manual */}
-              {isManualSearchActive && (
-                <>
-                  <SectionServiceOrders block={data?.service_orders} />
-                  <SectionBsale block={bs} shopifyBlock={sh} />
-                  <SectionShopify block={sh} />
-                </>
-              )}
+            <SectionBsale block={bs} shopifyBlock={sh} />
 
-              <SectionConversations
-                block={cw}
-                chatwootApp={meta?.chatwootApp}
-                title="Servicio técnico"
-                subtitle="Tickets con etiqueta ST"
-                defaultOpen={false}
-              />
-              <SectionConversations
-                block={cw}
-                chatwootApp={meta?.chatwootApp}
-                title="Historial de conversaciones"
-                subtitle="Todos los tickets del contacto"
-                defaultOpen={false}
-              />
-            </div>
-          )}
-        </div>
-      )}
+            <SectionShopify block={sh} />
 
-      {/* ══════════════════════════════════════════════════════════════════
-          MODO STANDALONE — Panel de escritorio de doble columna
-      ══════════════════════════════════════════════════════════════════ */}
-      {!ctxConvId && (
-        <div className="animate-fade-in">
-          
-          {/* Vacío inicial */}
-          {!canSearch && !isFetching && (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 py-12 text-center px-6 shadow-sm animate-fade-in">
-              <p className="text-4xl mb-3">🔍</p>
-              <p className="text-base font-bold text-slate-800 mb-1">Centro de Inteligencia de Soporte</p>
-              <p className="text-xs text-slate-400 mb-6 font-medium">Busca en tiempo real sobre Chatwoot, Shopify y Bsale.</p>
-              <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
-                {[
-                  ['RUT Cliente', '12.345.678-9'],
-                  ['Correo', 'contacto@soymomo.com'],
-                  ['IMEI / ID', '358123456789012'],
-                  ['Pedido Shopify', '#SM38293'],
-                  ['Ticket Bsale', '38293'],
-                  ['ID Chatwoot', 'cw 1234']
-                ].map(([label, ex]) => (
-                  <button key={label} type="button" onClick={() => setInput(ex)}
-                    className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 hover:border-momo-400 hover:text-momo-700 hover:bg-momo-50/50 transition-all duration-200 shadow-sm flex items-center gap-1.5">
-                    <span className="text-slate-400">{label}</span>
-                    <span className="font-bold text-momo-600 font-mono">{ex}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+            <SectionConversations
+              block={cw}
+              chatwootApp={meta?.chatwootApp}
+              title="Servicio técnico"
+              subtitle="Tickets con etiqueta ST"
+              defaultOpen={!embed}
+            />
+            
+            <SectionConversations
+              block={cw}
+              chatwootApp={meta?.chatwootApp}
+              title="Historial de conversaciones"
+              subtitle={embed ? "Todos los tickets del contacto" : "Todas las conversaciones del contacto"}
+              defaultOpen={false}
+            />
 
-          {/* Cargando */}
-          {canSearch && isFetching && (
-            <div className="flex items-center gap-2.5 text-sm font-bold text-momo-700 bg-momo-50 border border-momo-100 rounded-2xl p-4 shadow-sm animate-pulse mb-4">
-              <span className="inline-block h-4 w-4 rounded-full border-2 border-momo-500 border-t-transparent animate-spin" />
-              Consolidando información de Chatwoot, Bsale y Shopify...
-            </div>
-          )}
-
-          {/* Errores */}
-          {canSearch && isError && (
-            <div className="rounded-2xl bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3.5 shadow-sm mb-4">
-              {error?.message || 'Error al procesar la búsqueda en las plataformas de soporte.'}
-            </div>
-          )}
-
-          {/* Resultados */}
-          {canSearch && !isError && data && (
-            <div className="space-y-5 animate-fade-in">
-              
-              {/* Sección Perfil y Estado */}
-              <div className="space-y-4">
-                <SourceStatusBar data={data} meta={meta} />
-                <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
-                <StBanner meta={meta} />
-              </div>
-
-              {/* Sección de Resultados por Plataforma */}
-              <div className="space-y-4">
-                <SectionOpenTickets
-                  meta={meta}
-                  onResolve={(id) => resolveConversation.mutate(id)}
-                  resolving={resolveConversation.isPending}
-                  resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
-                />
-                
-                <SectionSimilarTickets meta={meta} />
-                
-                <SectionServiceOrders block={data?.service_orders} />
-                
-                <SectionBsale block={bs} shopifyBlock={sh} />
-                
-                <SectionShopify block={sh} />
-                
-                <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Servicio técnico" subtitle="Tickets con etiqueta ST" defaultOpen={true} />
-                
-                <SectionConversations block={cw} chatwootApp={meta?.chatwootApp} title="Historial de conversaciones" subtitle="Todas las conversaciones del contacto" defaultOpen={false} />
-                
-                {meta?.bsaleNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.bsaleNote}</div>}
-                
-                {meta?.shopifyNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.shopifyNote}</div>}
-                
-                {meta?.strictNameNote && <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 text-xs font-semibold text-slate-800 leading-relaxed shadow-sm"><span className="font-bold text-slate-900">Filtro de nombre:</span> {meta.strictNameNote}</div>}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+            {meta?.bsaleNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.bsaleNote}</div>}
+            
+            {meta?.shopifyNote && <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs font-semibold text-amber-900 leading-relaxed shadow-sm">{meta.shopifyNote}</div>}
+            
+            {meta?.strictNameNote && <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 text-xs font-semibold text-slate-800 leading-relaxed shadow-sm"><span className="font-bold text-slate-900">Filtro de nombre:</span> {meta.strictNameNote}</div>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

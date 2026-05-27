@@ -19,7 +19,6 @@ setupRouter.get('/', async (req, res) => {
     const chatwootReady = Boolean(creds.chatwootBaseUrl && creds.chatwootApiToken);
     const bsaleReady = Boolean(creds.bsaleApiToken);
     const shopifyReady = Boolean(creds.shopifyAccessToken);
-    const driveReady = Boolean(creds.driveParentFolderId && creds.driveServiceAccountJson);
 
     res.json({
       supabaseAvailable: Boolean(supabase),
@@ -49,14 +48,6 @@ setupRouter.get('/', async (req, res) => {
         hint: shopifyReady
           ? null
           : 'Define SHOPIFY_ACCESS_TOKEN en server/.env. Si no pones SHOPIFY_API_URL ni SHOPIFY_STORE_URL, se usa la tienda SoyMomo Chile por defecto (cambia con SHOPIFY_SHOP_HOST). SHOPIFY_WEBHOOK_SECRET solo para webhooks.',
-      },
-      drive: {
-        ready: driveReady,
-        folderConfigured: Boolean(creds.driveParentFolderId),
-        serviceAccountConfigured: Boolean(creds.driveServiceAccountJson),
-        hint: driveReady
-          ? null
-          : 'Opcional: DRIVE_PARENT_FOLDER_ID y DRIVE_SERVICE_ACCOUNT_KEY (JSON) para evidencias ST en Drive.',
       },
       localEnvHelp: {
         file: 'server/.env',

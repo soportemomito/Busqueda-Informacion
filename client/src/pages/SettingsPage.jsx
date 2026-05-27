@@ -35,8 +35,6 @@ export default function SettingsPage() {
     shopifyAdminApiUrl: '',
     shopifyAccessToken: '',
     shopifyWebhookSecret: '',
-    driveParentFolderId: '',
-    driveServiceAccountKey: '',
   });
 
   useEffect(() => {
@@ -49,8 +47,6 @@ export default function SettingsPage() {
       shopifyAdminApiUrl: data.shopifyAdminApiUrl || '',
       shopifyAccessToken: data.shopifyAccessToken || '',
       shopifyWebhookSecret: '',
-      driveParentFolderId: data.driveParentFolderId || '',
-      driveServiceAccountKey: '',
     });
   }, [data]);
 
@@ -64,8 +60,6 @@ export default function SettingsPage() {
         shopifyAdminApiUrl: form.shopifyAdminApiUrl || null,
         shopifyAccessToken: form.shopifyAccessToken || null,
         shopifyWebhookSecret: form.shopifyWebhookSecret.trim() || undefined,
-        driveParentFolderId: form.driveParentFolderId || null,
-        driveServiceAccountKey: form.driveServiceAccountKey.trim() || null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['config'] });
@@ -94,12 +88,8 @@ export default function SettingsPage() {
             <Check ok={setup.chatwoot?.ready} label="Chatwoot" />
             <Check ok={setup.bsale?.ready} label="Bsale" />
             <Check ok={setup.shopify?.ready} label="Shopify" />
-            <Check ok={setup.drive?.ready} label="Google Drive (opcional)" />
             {setup.shopify?.ready === false && setup.shopify?.hint && (
               <p className="text-xs text-momo-500 pl-6">{setup.shopify.hint}</p>
-            )}
-            {setup.drive?.ready === false && setup.drive?.hint && (
-              <p className="text-xs text-momo-500 pl-6">{setup.drive.hint}</p>
             )}
           </div>
         </div>
@@ -117,9 +107,7 @@ BSALE_API_URL=https://api.bsale.io/v1
 SHOPIFY_ACCESS_TOKEN=shpat_...
 # Opcional: SHOPIFY_API_URL o SHOPIFY_STORE_URL; si no, tienda SoyMomo Chile por defecto
 # SHOPIFY_SHOP_HOST=otra-tienda.myshopify.com
-SHOPIFY_WEBHOOK_SECRET=
-DRIVE_PARENT_FOLDER_ID=
-DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
+SHOPIFY_WEBHOOK_SECRET=`}
           </pre>
         </div>
       )}
@@ -229,32 +217,7 @@ DRIVE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}`}
                 autoComplete="off"
               />
             </div>
-            <div>
-              <label htmlFor="driveParentFolderId" className="block text-xs font-medium text-momo-700 mb-1">Drive — ID carpeta padre</label>
-              <input
-                id="driveParentFolderId"
-                name="driveParentFolderId"
-                className="w-full rounded-lg border border-momo-200 px-3 py-2 text-sm font-mono text-xs"
-                value={form.driveParentFolderId}
-                onChange={(e) => setForm((f) => ({ ...f, driveParentFolderId: e.target.value }))}
-                placeholder="DRIVE_PARENT_FOLDER_ID"
-              />
-            </div>
-            <div>
-              <label htmlFor="driveServiceAccountKey" className="block text-xs font-medium text-momo-700 mb-1">Drive — JSON cuenta de servicio</label>
-              <textarea
-                id="driveServiceAccountKey"
-                name="driveServiceAccountKey"
-                className="w-full rounded-lg border border-momo-200 px-3 py-2 text-xs font-mono min-h-[120px]"
-                value={form.driveServiceAccountKey}
-                onChange={(e) => setForm((f) => ({ ...f, driveServiceAccountKey: e.target.value }))}
-                placeholder={
-                  data?.driveServiceAccountConfigured
-                    ? 'Dejar vacío para mantener el actual; pegar JSON completo para reemplazar'
-                    : 'Pegar JSON de la service account'
-                }
-              />
-            </div>
+
 
             {mutation.isError && (
               <p className="text-sm text-red-700">{mutation.error?.message || 'Error al guardar'}</p>

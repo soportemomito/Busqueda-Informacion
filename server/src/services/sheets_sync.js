@@ -77,7 +77,7 @@ export async function syncServiceOrdersFromSheet(db) {
   const [entradasRes, recepcionRes, salidasRes] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Entradas!B2:AF',
+      range: 'Entradas!B2:AG',
       valueRenderOption: 'UNFORMATTED_VALUE',
     }).catch(err => {
       console.error('[sheets_sync] Error consultando Entradas:', err.message);
@@ -85,7 +85,7 @@ export async function syncServiceOrdersFromSheet(db) {
     }),
     sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Entrada recepción!C2:AF',
+      range: 'Entrada recepción!C2:AH',
       valueRenderOption: 'UNFORMATTED_VALUE',
     }).catch(err => {
       console.error('[sheets_sync] Error consultando Entrada recepción:', err.message);
@@ -123,6 +123,8 @@ export async function syncServiceOrdersFromSheet(db) {
     const orderNumber = String(row[0] ?? '').trim();
     if (!orderNumber) { skipped++; return; }
 
+    const entryReportUrl = String(row[30] ?? '').trim() || null;
+
     ordersMap.set(orderNumber, {
       order_number: orderNumber,
       entry_date: parseDate(row[1]),
@@ -132,6 +134,7 @@ export async function syncServiceOrdersFromSheet(db) {
       check_in_notes: String(row[14] ?? '').trim() || null,
       status: 'received',
       sheet_row_url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit#gid=${gid}`,
+      entry_report_url: entryReportUrl,
     });
   };
 
