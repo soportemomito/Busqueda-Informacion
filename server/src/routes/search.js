@@ -74,7 +74,13 @@ function computeRecentSt({ servicioTecnicoItems }) {
 }
 
 function normalizeEmail(s) {
-  return String(s || '').trim().toLowerCase();
+  let n = String(s || '').trim().toLowerCase();
+  if (n.includes('@')) {
+    const [local, domain] = n.split('@');
+    const cleanLocal = local.split('+')[0];
+    return `${cleanLocal}@${domain}`;
+  }
+  return n;
 }
 
 const INTERNAL_EMAIL_DOMAINS = new Set(['soymomo.com', 'soymomo.io', 'helpdesk.soymomo.io']);

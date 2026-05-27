@@ -1147,13 +1147,6 @@ export default function SearchPage() {
         {/* Resultados consolidados y colapsables */}
         {data && (
           <div className="space-y-4 mt-3 animate-fade-in">
-            <SectionOpenTickets
-              meta={meta}
-              onResolve={(id) => resolveConversation.mutate(id)}
-              resolving={resolveConversation.isPending}
-              resolveError={resolveConversation.isError ? resolveConversation.error?.message : null}
-            />
-
             <SectionSimilarTickets meta={meta} />
             
             <SectionConversations

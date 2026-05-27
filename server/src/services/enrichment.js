@@ -67,9 +67,12 @@ class EnrichmentContext {
 
   _normalizeEmail(e) {
     if (!e) return null;
-    const n = String(e).trim().toLowerCase();
+    let n = String(e).trim().toLowerCase();
     if (!n.includes('@')) return null;
-    if (INTERNAL_DOMAINS.has(n.split('@')[1] || '')) return null;
+    const [local, domain] = n.split('@');
+    const cleanLocal = local.split('+')[0];
+    n = `${cleanLocal}@${domain}`;
+    if (INTERNAL_DOMAINS.has(domain)) return null;
     return n;
   }
 
