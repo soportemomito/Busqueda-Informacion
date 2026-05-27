@@ -56,7 +56,7 @@ ${formatted}`;
             service_orders: {
               type: "ARRAY",
               items: { type: "STRING" },
-              description: "IDs de tickets de servicio técnico mencionados, ya sean informes de entrada o salida (ej: OS-1234, #12345)"
+              description: "IDs de tickets de servicio técnico (informes de entrada o salida). Los formatos válidos son letras E, P o ST seguidas de 4 dígitos, o simplemente 4 dígitos solos (ej: E1234, P1234, ST1234, 1234)."
             },
             shopify_orders: {
               type: "ARRAY",
