@@ -142,7 +142,7 @@ conversationsRouter.post('/:id/summary/generate', async (req, res) => {
     }
 
     // 3. Obtener resumen IA de Chatwoot y extraer entidades de los mensajes
-    const result = await generateGeminiSummaryAndFacts(messages, contactName, null, {
+    const result = await generateGeminiSummaryAndFacts(messages, contactName, creds, {
       client,
       accountId,
       conversationId,

@@ -1,7 +1,83 @@
+import axios from 'axios';
 import { extractEntities } from './extractor.js';
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
 const PHONE_RE = /(?:\+?56\s?)?9\d{8}/g;
+
+/**
+ * Llama a la API oficial de Google Gemini usando el modelo rápido y 100% gratuito 'gemini-2.5-flash'.
+ */
+export async function callGeminiApi(apiKey, messages) {
+  try {
+    const relevant = filterRelevantMessages(messages);
+    if (!relevant.length) return null;
+
+    const formatted = relevant.map(m => {
+      const sender = (m.message_type === 0 || m.message_type === '0' || m.message_type === 'incoming' || m.sender_type === 'contact') ? 'Cliente' : 'Agente';
+      return `${sender}: ${m.content || ''}`;
+    }).join('\n');
+
+    const prompt = `Analiza la siguiente conversación de soporte y extrae los datos requeridos.
+    
+Conversación:
+${formatted}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            ai_summary: { type: "STRING", description: "Resumen ejecutivo breve del problema" },
+            customer_sentiment: { type: "STRING", description: "positive, neutral, negative o frustrated" },
+            issue_complexity: { type: "STRING", description: "low, medium, high" },
+            devices_mentioned: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  model: { type: "STRING" },
+                  imei: { type: "STRING" },
+                  sim: { type: "STRING" }
+                }
+              }
+            },
+            location: {
+              type: "OBJECT",
+              properties: {
+                comuna: { type: "STRING" },
+                address: { type: "STRING" }
+              }
+            },
+            service_orders: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "IDs de tickets de servicio técnico mencionados, ya sean informes de entrada o salida (ej: OS-1234, #12345)"
+            },
+            shopify_orders: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "IDs de compras o pedidos de tienda (ej: SM12345, #9876)"
+            }
+          }
+        }
+      }
+    }, { timeout: 15000 });
+
+    const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      return JSON.parse(text); // Devuelve un objeto estructurado
+    }
+    return null;
+  } catch (err) {
+    console.error('Error llamando a Gemini API estructurada:', err.message);
+    return null;
+  }
+}
 
 function filterRelevantMessages(messages) {
   return (messages || []).filter((m) => {
@@ -79,18 +155,24 @@ export function generateLocalHeuristicSummary(messages) {
  *
  * @param {Array}  messages     - Array of { content, message_type, private, sender_type }
  * @param {string} contactName  - Pre-known contact name (from Chatwoot contact record)
- * @param {object} _config      - Unused (kept for interface compatibility)
+ * @param {object} _config      - Configuration containing geminiApiKey
  * @param {object} chatwootMeta - { client, accountId, conversationId } for the Chatwoot API call
  */
 export async function generateGeminiSummaryAndFacts(messages, contactName, _config, chatwootMeta) {
-  // 1. Try Chatwoot's built-in AI summary
+  // 1. Try real Gemini AI if API key is configured
   let aiSummary = null;
-  if (chatwootMeta) {
+  const geminiKey = _config?.geminiApiKey || process.env.GEMINI_API_KEY || '';
+  if (geminiKey) {
+    aiSummary = await callGeminiApi(geminiKey, messages);
+  }
+
+  // 2. Try Chatwoot's built-in AI summary if Gemini is not set or failed
+  if (!aiSummary && chatwootMeta) {
     const { client, accountId, conversationId } = chatwootMeta;
     aiSummary = await fetchChatwootAiSummary(client, accountId, conversationId);
   }
 
-  // Fallback: Generar resumen heurístico local gratuito si no hay resumen oficial de Chatwoot
+  // Fallback: Generar resumen heurístico local gratuito
   if (!aiSummary) {
     aiSummary = generateLocalHeuristicSummary(messages);
   }

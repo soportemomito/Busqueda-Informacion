@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Router } from 'express';
 import { getSupabase, upsertDeviceFacts } from '../lib/supabase.js';
 import { extractDeviceFactsFromText } from '../lib/extractDeviceFacts.js';
-import { generateLocalHeuristicSummary } from '../services/gemini.js';
+import { generateLocalHeuristicSummary, callGeminiApi } from '../services/gemini.js';
 import { resolveCredentials } from '../lib/resolveCredentials.js';
 import { writeAttributesToChatwoot } from '../services/chatwoot_writeback.js';
 
@@ -46,19 +46,41 @@ function extractAiSummary(customAttributes) {
   return null;
 }
 
-function extractSummaryFromMessageContent(content) {
+function extractSummaryFromMessageContent(content, isPrivateNote = false) {
   if (!content || typeof content !== 'string') return null;
   const clean = content.replace(/<[^>]+>/g, ' ').trim();
-  
+
   const prefixes = [
-    /^(?:resumen\s*(?:ia|gemini|openai|gpt)?\s*[:\-–—]|\bresumen\s+de\s+(?:la\s+)?conversaci[oó]n\s*[:\-–—])/i,
-    /^(?:summary\s*(?:ia|ai|gemini|openai|gpt)?\s*[:\-–—]|\bsummary\s+of\s+(?:the\s+)?conversation\s*[:\-–—])/i,
+    /^(?:resumen\s*(?:ia|gemini|openai|gpt|chatgpt|copilot)?\s*[:\-–—]|\bresumen\s+de\s+(?:la\s+)?conversaci[oó]n\s*[:\-–—])/i,
+    /^(?:summary\s*(?:ia|ai|gemini|openai|gpt|chatgpt|copilot)?\s*[:\-–—]|\bsummary\s+of\s+(?:the\s+)?conversation\s*[:\-–—])/i,
     /^(?:resumen\s+st\s*[:\-–—]|\bdiagn[oó]stico\s*[:\-–—])/i
   ];
-  
+
   for (const prefix of prefixes) {
     if (prefix.test(clean)) {
       return clean.replace(prefix, '').trim();
+    }
+  }
+
+  // Si es una nota privada de agente y tiene un largo considerable con contexto de soporte,
+  // la tomamos directamente como el resumen ejecutivo de la conversación.
+  if (isPrivateNote && clean.length > 25) {
+    const lower = clean.toLowerCase();
+    const isSupportSummary = 
+      lower.includes('cliente') ||
+      lower.includes('reporta') ||
+      lower.includes('problema') ||
+      lower.includes('reloj') ||
+      lower.includes('momo') ||
+      lower.includes('imei') ||
+      lower.includes('sim') ||
+      lower.includes('suscrip') ||
+      lower.includes('conversac') ||
+      lower.includes('comuna') ||
+      lower.includes('solicit');
+      
+    if (isSupportSummary) {
+      return clean;
     }
   }
   return null;
@@ -138,11 +160,12 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const contactPhone = contact.phone_number || null;
         
         let aiSummary = extractAiSummary(conversation.custom_attributes);
+        const isPrivate = payload.private === true || messageType === '2';
         if (!aiSummary && content) {
-          aiSummary = extractSummaryFromMessageContent(content);
+          aiSummary = extractSummaryFromMessageContent(content, isPrivate);
         }
 
-        // Si sigue vacío, generamos un resumen heurístico local a partir del historial del ticket
+        // Si sigue vacío, generamos un resumen usando Gemini API (si está configurada) o el heurístico local gratuito
         if (!aiSummary) {
           const { data: convMessages } = await supabase
             .from('chatwoot_messages')
@@ -154,7 +177,19 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             ? convMessages 
             : [{ content, message_type: messageType, sender_type: senderType }];
           
-          aiSummary = generateLocalHeuristicSummary(messagesForSummary);
+          const geminiKey = creds?.geminiApiKey || process.env.GEMINI_API_KEY || '';
+          let aiData = null;
+          if (geminiKey) {
+            aiData = await callGeminiApi(geminiKey, messagesForSummary);
+          }
+          
+          if (aiData && typeof aiData === 'object') {
+            aiSummary = aiData.ai_summary || null;
+          }
+
+          if (!aiSummary) {
+            aiSummary = generateLocalHeuristicSummary(messagesForSummary);
+          }
         }
         
         // Obtener historial previo para no perder arrays ni el resumen si ya existen
@@ -246,6 +281,31 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           for (const sm of newShopify) currentShopify.add(sm);
         }
 
+        // Si tenemos datos estructurados de Gemini, agregarlos
+        let customerSentiment = null;
+        let issueComplexity = null;
+        if (typeof aiData === 'object' && aiData) {
+          if (aiData.devices_mentioned) {
+            for (const d of aiData.devices_mentioned) {
+              if (d.imei) currentImeis.add(d.imei);
+              if (d.sim) currentSims.add(d.sim);
+              if (d.model) currentModels.add(d.model);
+            }
+          }
+          if (aiData.location) {
+            if (aiData.location.comuna) currentComunas.add(aiData.location.comuna);
+            if (aiData.location.address && !currentAddress) currentAddress = aiData.location.address;
+          }
+          if (aiData.service_orders && Array.isArray(aiData.service_orders)) {
+            for (const os of aiData.service_orders) currentSt.add(os);
+          }
+          if (aiData.shopify_orders && Array.isArray(aiData.shopify_orders)) {
+            for (const sm of aiData.shopify_orders) currentShopify.add(sm);
+          }
+          customerSentiment = aiData.customer_sentiment || null;
+          issueComplexity = aiData.issue_complexity || null;
+        }
+
         // Guardar resumen consolidado
         await supabase.from('conversation_summaries').upsert({
           conversation_id: conversationId,
@@ -263,6 +323,39 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
+
+        // Actualizar tabla centralizada de perfil de cliente
+        if (contact.id) {
+          const profileDevices = [];
+          const imeisArr = [...currentImeis];
+          const simsArr = [...currentSims];
+          const modelsArr = [...currentModels];
+          const maxLen = Math.max(imeisArr.length, simsArr.length, modelsArr.length);
+          for (let i = 0; i < maxLen; i++) {
+            profileDevices.push({
+              imei: imeisArr[i] || null,
+              sim: simsArr[i] || null,
+              model: modelsArr[i] || null
+            });
+          }
+          
+          await supabase.from('client_profiles').upsert({
+            chatwoot_contact_id: contact.id,
+            name: contactName,
+            email: contactEmail,
+            phone: contactPhone,
+            rut: [...currentRuts][0] || null,
+            comuna: [...currentComunas][0] || null,
+            address: currentAddress || null,
+            devices: profileDevices.length > 0 ? profileDevices : undefined,
+            service_orders: [...currentSt],
+            shopify_orders: [...currentShopify],
+            latest_ai_summary: aiSummary || existing?.ai_summary || null,
+            customer_sentiment: customerSentiment,
+            last_interaction_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'chatwoot_contact_id' });
+        }
 
         // Guardar en la tabla device_facts para búsquedas y cruce inteligente de similitud inmediato
         const allIdentifiers = [];
@@ -386,6 +479,35 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           await supabase.from('conversation_summaries')
             .update(updates)
             .eq('conversation_id', conversationId);
+
+          const cwContactId = payload.sender?.id || payload.meta?.sender?.id;
+          if (cwContactId) {
+            const profileDevices = [];
+            const imeisArr = [...currentImeis];
+            const simsArr = [...currentSims];
+            const modelsArr = [...currentModels];
+            const maxLen = Math.max(imeisArr.length, simsArr.length, modelsArr.length);
+            for (let i = 0; i < maxLen; i++) {
+              profileDevices.push({
+                imei: imeisArr[i] || null,
+                sim: simsArr[i] || null,
+                model: modelsArr[i] || null
+              });
+            }
+
+            await supabase.from('client_profiles').upsert({
+              chatwoot_contact_id: cwContactId,
+              name: contactName,
+              email: contactEmail,
+              phone: contactPhone,
+              rut: rVal || null,
+              comuna: cVal || null,
+              address: addrVal || null,
+              devices: profileDevices.length > 0 ? profileDevices : undefined,
+              latest_ai_summary: aiSummary || null,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'chatwoot_contact_id' });
+          }
 
           // También registrar nuevos hechos en la base de datos para cruce rápido
           const allIdentifiers = [];

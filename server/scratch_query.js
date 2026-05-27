@@ -7,7 +7,7 @@ async function main() {
   const accountId = '1';
   const internalId = '11117'; // ID interno de la conversación
 
-  console.log(`Querying Chatwoot messages with full details including attachments for internal ID ${internalId}...`);
+  console.log(`Querying Chatwoot details for internal ID ${internalId}...`);
 
   const client = axios.create({
     baseURL: base,
@@ -19,22 +19,15 @@ async function main() {
   });
 
   try {
-    const { data: msgData } = await client.get(`/api/v1/accounts/${accountId}/conversations/${internalId}/messages`);
-    const messages = msgData?.payload || msgData;
-
-    console.log(`Found ${messages?.length ?? 0} messages.`);
-    for (const m of messages || []) {
-      console.log(`\n----------------------------------------------------`);
-      console.log(`Msg ID: ${m.id} | Type: ${m.message_type} | Sender: ${m.sender?.name || m.sender_type}`);
-      console.log(`Content: ${JSON.stringify(m.content)}`);
-      
-      if (m.attachments && m.attachments.length > 0) {
-        console.log('ATTACHMENTS FOUND:', JSON.stringify(m.attachments, null, 2));
-      }
+    console.log(`Testing POST to /summary for conversation ${internalId}...`);
+    try {
+      const { data: summaryData } = await client.post(`/api/v1/accounts/${accountId}/conversations/${internalId}/summary`);
+      console.log('POST SUMMARY RESPONSE:', JSON.stringify(summaryData, null, 2));
+    } catch (e) {
+      console.log('POST SUMMARY ERROR:', e.response?.status, JSON.stringify(e.response?.data, null, 2));
     }
-
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('General Error:', error.message);
   }
 }
 

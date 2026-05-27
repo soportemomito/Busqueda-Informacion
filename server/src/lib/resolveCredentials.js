@@ -114,5 +114,6 @@ export async function resolveCredentials(supabase) {
     ),
     shopifyAccessToken: pick(data.shopify_api_token, fromEnv.shopifyAccessToken),
     shopifyWebhookSecret: pick(data.shopify_webhook_secret, fromEnv.shopifyWebhookSecret),
+    geminiApiKey: pick(data.gemini_api_key, process.env.GEMINI_API_KEY || ''),
   };
 }

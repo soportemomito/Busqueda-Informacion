@@ -23,6 +23,7 @@ configRouter.get('/', async (req, res) => {
       shopifyAccessToken: creds.shopifyAccessToken,
       shopifyWebhookSecret: creds.shopifyWebhookSecret ? '•••• (configurado)' : '',
       shopifyWebhookConfigured: Boolean(String(creds.shopifyWebhookSecret || '').trim()),
+      geminiApiKey: creds.geminiApiKey || '',
       supabaseAvailable: Boolean(supabase),
       fromDatabase: Boolean(supabase),
     });
@@ -48,9 +49,10 @@ configRouter.put('/', async (req, res) => {
       shopifyAdminApiUrl,
       shopifyAccessToken,
       shopifyWebhookSecret,
+      geminiApiKey,
     } = req.body || {};
 
-    const { data: existing } = await supabase.from('config').select('shopify_webhook_secret').eq('id', 1).maybeSingle();
+    const { data: existing } = await supabase.from('config').select('shopify_webhook_secret, gemini_api_key').eq('id', 1).maybeSingle();
 
     let webhookSecret = existing?.shopify_webhook_secret ?? null;
     if (shopifyWebhookSecret !== undefined) {
@@ -67,6 +69,7 @@ configRouter.put('/', async (req, res) => {
       shopify_admin_api_url: shopifyAdminApiUrl ?? null,
       shopify_api_token: shopifyAccessToken ?? null,
       shopify_webhook_secret: webhookSecret,
+      gemini_api_key: geminiApiKey ?? null,
       drive_parent_folder_id: null,
       drive_service_account_key: null,
       updated_at: new Date().toISOString(),
@@ -85,6 +88,7 @@ configRouter.put('/', async (req, res) => {
         bsaleApiToken: data.bsale_api_token,
         shopifyAdminApiUrl: data.shopify_admin_api_url,
         shopifyAccessToken: data.shopify_api_token,
+        geminiApiKey: data.gemini_api_key,
         updatedAt: data.updated_at,
       },
     });

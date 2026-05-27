@@ -212,7 +212,7 @@ SHOPIFY_WEBHOOK_SECRET=`}
                 placeholder={
                   data?.shopifyWebhookConfigured
                     ? 'Dejar vacío para mantener; pegar nuevo valor para reemplazar'
-                    : 'Para verificar webhooks (HMAC) cuando implementes el endpoint'
+                    : 'Para verificar webhooks (HMAC) when implementes el endpoint'
                 }
                 autoComplete="off"
               />
