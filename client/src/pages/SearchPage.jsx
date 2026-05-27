@@ -27,34 +27,6 @@ function chatwootConversationUrl(app, conversationId) {
   return `${app.baseUrl}/app/accounts/${app.accountId}/conversations/${conversationId}`;
 }
 
-function driveFileKindLabel(mimeType) {
-  const m = String(mimeType || '');
-  if (m === 'application/pdf') return 'PDF';
-  if (m === 'application/vnd.google-apps.document') return 'Doc';
-  if (m === 'application/vnd.google-apps.spreadsheet') return 'Hoja';
-  if (m.startsWith('image/')) return 'Imagen';
-  return 'Archivo';
-}
-
-function drivePdfAltUrl(file) {
-  const mime = file.mimeType || '';
-  const id = file.id;
-  if (!id) return null;
-  if (mime === 'application/vnd.google-apps.document') return `https://docs.google.com/document/d/${id}/export?format=pdf`;
-  if (mime === 'application/vnd.google-apps.spreadsheet') return `https://docs.google.com/spreadsheets/d/${id}/export?format=pdf`;
-  return null;
-}
-
-function driveEmbedPreviewUrl(file) {
-  const id = file?.id;
-  if (!id) return null;
-  const mime = file.mimeType || '';
-  if (mime === 'application/pdf') return `https://drive.google.com/file/d/${id}/preview`;
-  if (mime === 'application/vnd.google-apps.document') return `https://docs.google.com/document/d/${id}/preview`;
-  if (mime === 'application/vnd.google-apps.spreadsheet') return `https://docs.google.com/spreadsheets/d/${id}/preview`;
-  return null;
-}
-
 function copyText(text, onCopied) {
   const t = String(text || '').trim();
   if (!t) return;
@@ -141,7 +113,6 @@ function deriveSourceStatuses(data, meta) {
   const cw = data?.chatwoot;
   const bs = data?.bsale;
   const sh = data?.shopify;
-  const dr = data?.drive;
 
   items.push(cw?.status === 'error'
     ? { id: 'chatwoot', label: 'Chatwoot', tone: 'error', title: cw.error }
@@ -156,12 +127,6 @@ function deriveSourceStatuses(data, meta) {
     : sh?.data?.skipped
     ? { id: 'shopify', label: 'Shopify', tone: 'skip', title: 'Sin pedido para buscar' }
     : { id: 'shopify', label: 'Shopify', tone: 'ok', title: `${meta?.sources?.shopify?.orders ?? 0} pedidos` });
-
-  items.push(!dr || dr?.data?.skipped
-    ? { id: 'drive', label: 'Drive', tone: 'skip', title: 'Sin órdenes ST' }
-    : dr?.status === 'error'
-    ? { id: 'drive', label: 'Drive', tone: 'error', title: dr.error }
-    : { id: 'drive', label: 'Drive', tone: 'ok', title: 'Archivos encontrados' });
 
   return items;
 }
@@ -754,85 +719,6 @@ function SectionConversations({ block, chatwootApp, title, subtitle, icon, defau
   );
 }
 
-// ─── drive ────────────────────────────────────────────────────────────────────
-
-function DriveFileRow({ file }) {
-  const [showPreview, setShowPreview] = useState(false);
-  const previewSrc = driveEmbedPreviewUrl(file);
-  const kind = driveFileKindLabel(file.mimeType);
-  const href = file.webViewLink || (file.id ? `https://drive.google.com/file/d/${file.id}/view` : '#');
-  const pdfExport = drivePdfAltUrl(file);
-
-  return (
-    <div className="flex flex-col py-2 border-b border-slate-100 last:border-0">
-      <div className="flex items-start gap-3 justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-slate-800 truncate" title={file.name}>{file.name}</p>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{kind}</p>
-        </div>
-        <div className="flex gap-2.5 shrink-0 text-[11px] font-semibold text-momo-600">
-          <a href={href} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Abrir ↗</a>
-          {pdfExport && <a href={pdfExport} target="_blank" rel="noreferrer" className="underline hover:text-momo-800">Exportar PDF</a>}
-          {previewSrc && (
-            <button type="button" onClick={() => setShowPreview((v) => !v)} className="underline hover:text-momo-800">
-              {showPreview ? 'Cerrar Previa' : 'Vista Previa'}
-            </button>
-          )}
-        </div>
-      </div>
-      {showPreview && previewSrc && (
-        <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden w-full transition-all duration-300">
-          <iframe title={file.name} src={previewSrc} className="w-full h-56 border-0 bg-white" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionDrive({ block, meta, query }) {
-  if (!block) return null;
-  if (block.status === 'error') {
-    return (
-      <CollapsibleResultSection title="Google Drive" badge={0} error={block.error} defaultOpen>
-        <p className="px-4 py-3 text-sm text-slate-400 italic">Error al buscar en Google Drive</p>
-      </CollapsibleResultSection>
-    );
-  }
-  const d = block.data || {};
-  const folders = d.folders || [];
-  const hasHits = folders.some((f) => f.found);
-  const stCount = (meta?.stOrdersFromChatwoot || []).length;
-  if (!hasHits && d.skipped && !stCount) return null;
-
-  return (
-    <CollapsibleResultSection title="Google Drive (Servicio Técnico)" badge={folders.filter((f) => f.found).length} defaultOpen={hasHits}>
-      <div className="bg-white divide-y divide-slate-100">
-        {!hasHits && d.skipped && (
-          <p className="px-4 py-3.5 text-xs text-slate-400 italic font-medium">
-            Órdenes asociadas: {(meta?.stOrdersFromChatwoot || []).join(', ') || '—'}. {d.reason || ''}
-          </p>
-        )}
-        {folders.map((f) => (
-          <div key={f.order} className="px-4 py-3.5">
-            <p className="text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span>📁 Orden de Servicio: {f.order}</span>
-              <span className={`text-[9px] font-bold uppercase rounded-md px-1.5 py-0.5 ${f.found ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                {f.found ? 'Carpeta Encontrada' : 'Sin Carpeta'}
-              </span>
-            </p>
-            {f.error && <p className="text-xs text-red-500 font-semibold">{f.error}</p>}
-            {f.files?.length > 0 ? (
-              <div className="space-y-1 bg-slate-50/50 rounded-xl px-3 py-1 border border-slate-100">{f.files.map((file) => <DriveFileRow key={file.id} file={file} />)}</div>
-            ) : f.found ? (
-              <p className="text-xs text-slate-400 italic">Sin archivos adjuntos en la carpeta</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </CollapsibleResultSection>
-  );
-}
-
 // ─── ST banner ────────────────────────────────────────────────────────────────
 
 function StBanner({ meta }) {
@@ -878,7 +764,6 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const meta = searchData?.meta;
   const bs = searchData?.bsale;
   const sh = searchData?.shopify;
-  const dr = searchData?.drive;
 
   // Identidad — DB primero, search como fallback
   const name = summary?.contact_name || meta?.contactSummary?.name || null;
@@ -897,7 +782,6 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const openTickets = meta?.openConversations || [];
   const shopifyOrders = sh?.data?.orders || [];
   const bsaleItems = bs?.data?.items || [];
-  const driveFiles = (dr?.data?.folders || []).filter((f) => f.found).flatMap((f) => (f.files || []).map((file) => ({ ...file, order: f.order })));
 
   const idLoading = isSummaryLoading;
   const liveLoading = isSearchLoading;
@@ -1106,24 +990,6 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
         )}
       </FichaRow>
 
-      {/* ── informes ST (Drive) ── */}
-      <FichaRow icon="🔧" label="ST (Drive)" loading={liveLoading}>
-        {driveFiles.length ? (
-          <div className="space-y-1.5">
-            {driveFiles.map((file) => {
-              const href = file.webViewLink || (file.id ? `https://drive.google.com/file/d/${file.id}/view` : '#');
-              return (
-                <div key={file.id} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-100 rounded-xl px-2.5 py-1.5">
-                  <span className="text-xs text-slate-700 truncate font-semibold flex-1" title={file.name}>{file.name}</span>
-                  <a href={href} target="_blank" rel="noreferrer" className="text-[10px] text-momo-600 font-bold underline shrink-0">Abrir ↗</a>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <Empty />
-        )}
-      </FichaRow>
     </div>
   );
 }
@@ -1180,7 +1046,6 @@ export default function SearchPage() {
   const cw = data?.chatwoot;
   const bs = data?.bsale;
   const sh = data?.shopify;
-  const dr = data?.drive;
   const meta = data?.meta;
 
   return (
@@ -1271,7 +1136,6 @@ export default function SearchPage() {
                   <SectionServiceOrders block={data?.service_orders} />
                   <SectionBsale block={bs} shopifyBlock={sh} />
                   <SectionShopify block={sh} />
-                  <SectionDrive block={dr} meta={meta} query={data?.query} />
                 </>
               )}
 
@@ -1305,7 +1169,7 @@ export default function SearchPage() {
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 py-12 text-center px-6 shadow-sm animate-fade-in">
               <p className="text-4xl mb-3">🔍</p>
               <p className="text-base font-bold text-slate-800 mb-1">Centro de Inteligencia de Soporte</p>
-              <p className="text-xs text-slate-400 mb-6 font-medium">Busca en tiempo real sobre Chatwoot, Shopify, Bsale y Google Drive.</p>
+              <p className="text-xs text-slate-400 mb-6 font-medium">Busca en tiempo real sobre Chatwoot, Shopify y Bsale.</p>
               <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
                 {[
                   ['RUT Cliente', '12.345.678-9'],
@@ -1329,7 +1193,7 @@ export default function SearchPage() {
           {canSearch && isFetching && (
             <div className="flex items-center gap-2.5 text-sm font-bold text-momo-700 bg-momo-50 border border-momo-100 rounded-2xl p-4 shadow-sm animate-pulse mb-4">
               <span className="inline-block h-4 w-4 rounded-full border-2 border-momo-500 border-t-transparent animate-spin" />
-              Consolidando información de Chatwoot, Bsale, Shopify y Drive...
+              Consolidando información de Chatwoot, Bsale y Shopify...
             </div>
           )}
 
@@ -1344,12 +1208,11 @@ export default function SearchPage() {
           {canSearch && !isError && data && (
             <div className="space-y-5 animate-fade-in">
               
-              {/* Sección Perfil, Estado y Drive */}
+              {/* Sección Perfil y Estado */}
               <div className="space-y-4">
                 <SourceStatusBar data={data} meta={meta} />
                 <ProfileCard meta={meta} bsBlock={bs} cwBlock={cw} />
                 <StBanner meta={meta} />
-                <SectionDrive block={dr} meta={meta} query={data?.query} />
               </div>
 
               {/* Sección de Resultados por Plataforma */}

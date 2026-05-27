@@ -5,7 +5,6 @@ import { buildSearchPlan } from '../lib/searchPlan.js';
 import { searchChatwoot } from '../services/chatwoot.js';
 import { searchBsale } from '../services/bsale.js';
 import { searchShopify } from '../services/shopify.js';
-import { searchDriveForStOrders } from '../services/drive.js';
 import { shopifyStoreOriginFromApiBase } from '../services/shopify.js';
 import { flattenDeviceFactsForMeta } from '../lib/extractDeviceFacts.js';
 
@@ -59,19 +58,11 @@ function parseWhenMs(value) {
   return Number.isFinite(t) ? t : null;
 }
 
-function computeRecentSt({ servicioTecnicoItems, driveResult }) {
+function computeRecentSt({ servicioTecnicoItems }) {
   const times = [];
   for (const item of servicioTecnicoItems || []) {
     const ms = parseWhenMs(item.date);
     if (ms != null) times.push(ms);
-  }
-  if (driveResult?.folders) {
-    for (const f of driveResult.folders) {
-      if (f.found && f.modifiedTime) {
-        const t = Date.parse(f.modifiedTime);
-        if (Number.isFinite(t)) times.push(t);
-      }
-    }
   }
   if (!times.length) return { showBanner: false, lastDate: null };
   const latest = Math.max(...times);
@@ -458,26 +449,8 @@ searchRouter.get('/', async (req, res) => {
     ? chatwootBlock.data?.stOrdersFromMessages || []
     : [];
 
-  let driveBlock = wrapOk({ folders: [], skipped: true, reason: 'Sin órdenes ST en mensajes' });
-  if (stOrders.length && creds.driveParentFolderId && creds.driveServiceAccountJson) {
-    const dSettled = await Promise.allSettled([searchDriveForStOrders(stOrders, creds)]);
-    if (dSettled[0].status === 'fulfilled') {
-      const dr = dSettled[0].value;
-      driveBlock = wrapOk(dr);
-    } else {
-      driveBlock = wrapErr(dSettled[0].reason?.message || 'Error Google Drive');
-    }
-  } else if (stOrders.length) {
-    driveBlock = wrapOk({
-      folders: [],
-      skipped: true,
-      reason: 'Drive no configurado (DRIVE_PARENT_FOLDER_ID / DRIVE_SERVICE_ACCOUNT_KEY)',
-    });
-  }
-
   const servicioTecnicoItems =
     chatwootBlock.status === 'ok' ? chatwootBlock.data.servicioTecnico || [] : [];
-  const driveData = driveBlock.status === 'ok' ? driveBlock.data : null;
 
   const strictNameNotes = [];
   if (settled[0].status === 'fulfilled' && settled[0].value.strictNameNote) {
@@ -605,7 +578,6 @@ searchRouter.get('/', async (req, res) => {
   const meta = {
     recentSt: computeRecentSt({
       servicioTecnicoItems,
-      driveResult: driveData,
     }),
     sources: sourceStats,
     unifiedProfile: buildUnifiedProfile(chatwootBlock, bsaleBlock, shopifyBlock),
@@ -666,7 +638,6 @@ searchRouter.get('/', async (req, res) => {
     },
     bsale: bsaleBlock,
     shopify: shopifyBlock,
-    drive: driveBlock,
     service_orders: serviceOrdersList,
     meta,
   });
