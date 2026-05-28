@@ -49,14 +49,14 @@ ${formatted}`;
             location: {
               type: "OBJECT",
               properties: {
-                comuna: { type: "STRING" },
-                address: { type: "STRING" }
+                comuna: { type: "STRING", description: "Comuna o ciudad (ej: Los Ángeles, Santiago)." },
+                address: { type: "STRING", description: "Solo el nombre de la calle y número (ej: Calle El Bosque 721). Sin saludos ni texto adicional." }
               }
             },
             service_orders: {
               type: "ARRAY",
               items: { type: "STRING" },
-              description: "IDs de tickets de servicio técnico (informes de entrada o salida). Los formatos válidos son letras E, P o ST seguidas de 4 dígitos, o simplemente 4 dígitos solos (ej: E1234, P1234, ST1234, 1234)."
+              description: "IDs de tickets de servicio técnico (ej: P4016, E1234, ST1234, o simplemente 4 dígitos solos). Si se menciona un número de informe o servicio, inclúyelo."
             },
             shopify_orders: {
               type: "ARRAY",
@@ -65,7 +65,15 @@ ${formatted}`;
             },
             rut: { 
               type: "STRING", 
-              description: "RUT chileno del cliente, si lo menciona (formato XX.XXX.XXX-X o XXXXXXXX-X)" 
+              description: "Solo el RUT chileno real del cliente si lo menciona (formato XX.XXX.XXX-X o XXXXXXXX-X), no confundir con teléfono." 
+            },
+            phone: {
+              type: "STRING",
+              description: "Número de teléfono o WhatsApp del cliente."
+            },
+            alt_email: {
+              type: "STRING",
+              description: "Correo electrónico alternativo proporcionado por el cliente en la conversación."
             },
             failure_categories: {
               type: "ARRAY",
@@ -231,4 +239,83 @@ export async function generateGeminiSummaryAndFacts(messages, contactName, _conf
     extracted_comunas:        [...comunas],
     extracted_ruts:           [...ruts],
   };
+}
+
+/**
+ * AI-Powered Search Orchestrator
+ * Takes a natural language query and extracts structured search parameters.
+ */
+export async function analyzeSearchQuery(query, apiKey) {
+  if (!query || !apiKey) return null;
+  
+  const prompt = `Analiza la siguiente consulta de búsqueda de un agente de soporte y extrae los parámetros exactos.
+  
+Consulta: "${query}"`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  
+  try {
+    const response = await axios.post(url, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            names: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "Nombres de clientes mencionados (ej: Luz Maldonado)"
+            },
+            emails: {
+              type: "ARRAY",
+              items: { type: "STRING" }
+            },
+            phones: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "Números de teléfono (idealmente normalizados a 8 o 9 dígitos)"
+            },
+            ruts: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "RUTs chilenos mencionados (ej: 16.399.092-K)"
+            },
+            order_numbers: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "IDs de pedidos de Shopify (ej: SM12345, #9876)"
+            },
+            st_tickets: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "IDs de informes de servicio técnico (ej: P4016, E1234, 11325 si se menciona como ticket)"
+            },
+            chatwoot_ids: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "IDs de conversaciones de chatwoot mencionados (ej: cw 11325, conversacion 123)"
+            },
+            product_mentions: {
+              type: "ARRAY",
+              items: { type: "STRING" }
+            },
+            search_intent: {
+              type: "STRING",
+              description: "Breve descripción de la intención (ej: find_customer_and_order, check_repair_status)"
+            }
+          }
+        }
+      }
+    }, { timeout: 10000 });
+
+    const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      return JSON.parse(text);
+    }
+    return null;
+  } catch (err) {
+    console.error('[Gemini Search Analyzer] Error:', err.message);
+    return null;
+  }
 }

@@ -156,8 +156,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const contact = payload.sender?.type === 'Contact' ? payload.sender : (conversation.meta?.sender || {});
         
         const contactName = contact.name || null;
-        const contactEmail = contact.email || null;
-        const contactPhone = contact.phone_number || null;
+        let contactEmail = contact.email || null;
+        let contactPhone = contact.phone_number || null;
         
         let aiSummary = extractAiSummary(conversation.custom_attributes);
         const isPrivate = payload.private === true || messageType === '2';
@@ -263,19 +263,25 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         // 2. Extraer nuevos de este mensaje (solo si no es un mensaje saliente escrito por el soporte)
         const isOutgoing = messageType === '1' || messageType === 'outgoing';
         if (!isOutgoing) {
+          // Extraemos IMEI y SIM siempre (son muy estrictos, rara vez dan falsos positivos)
+          // Pero desactivamos RUT, Comuna, Dirección del Regex si existe IA, para evitar basura.
           const facts = extractDeviceFactsFromText(content);
           for (const f of facts) {
             if (f.label === 'ID / IMEI') currentImeis.add(f.value);
             if (f.label === 'ICCID / SIM') currentSims.add(f.value);
             if (f.label === 'Modelo') currentModels.add(f.value);
-            if (f.label === 'RUT') currentRuts.add(f.value);
-            if (f.label === 'Comuna') currentComunas.add(f.value);
-            if (f.label === 'Dirección') currentAddress = f.value;
-            if (f.label === 'Falla') currentFallas.add(f.value);
+            if (!aiData) {
+              if (f.label === 'RUT') currentRuts.add(f.value);
+              if (f.label === 'Comuna') currentComunas.add(f.value);
+              if (f.label === 'Dirección') currentAddress = f.value;
+              if (f.label === 'Falla') currentFallas.add(f.value);
+            }
           }
 
-          const newSt = extractStOrdersFromText(content);
-          for (const st of newSt) currentSt.add(st);
+          if (!aiData) {
+            const newSt = extractStOrdersFromText(content);
+            for (const st of newSt) currentSt.add(st);
+          }
 
           const newShopify = (content.match(SHOPIFY_ORDER_IN_MSG_RE) || []).map(o => o.toUpperCase());
           for (const sm of newShopify) currentShopify.add(sm);
@@ -308,6 +314,13 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           }
           if (aiData.failure_categories && Array.isArray(aiData.failure_categories)) {
             for (const fc of aiData.failure_categories) currentFallas.add(fc);
+          }
+          if (aiData.phone) {
+             const cleanPh = aiData.phone.replace(/[^\d+]/g, '');
+             if (cleanPh.length >= 8) contactPhone = cleanPh; // Sobreescribimos con el de IA
+          }
+          if (aiData.alt_email) {
+             contactEmail = aiData.alt_email.toLowerCase(); // Sobreescribimos con el de IA
           }
           customerSentiment = aiData.customer_sentiment || null;
           issueComplexity = aiData.issue_complexity || null;
@@ -417,6 +430,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             direccion: currentAddress || null,
             customer_sentiment: customerSentiment || null,
             issue_complexity: issueComplexity || null,
+            phone: contactPhone || null,
+            email: contactEmail || null,
           }).catch((err) => console.error('[chatwoot_writeback] Error en segundo plano:', err.message));
         }
       }

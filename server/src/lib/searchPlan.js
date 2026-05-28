@@ -142,3 +142,52 @@ export function buildSearchPlan(raw) {
     bsaleHints: { name: trimmed },
   };
 }
+
+/**
+ * Maps the AI-extracted structured JSON back into a unified search plan
+ * that Chatwoot, Bsale, and Shopify searchers can understand.
+ */
+export function buildAiSearchPlan(query, aiData) {
+  if (!aiData) return buildSearchPlan(query);
+
+  let type = 'name';
+  let email = aiData.emails?.[0];
+  let phone = aiData.phones?.[0];
+  let orderNumber = aiData.order_numbers?.[0];
+  let rut = aiData.ruts?.[0];
+  let stTicket = aiData.st_tickets?.[0];
+  let name = aiData.names?.[0] || query;
+
+  if (orderNumber) type = 'orderNumber';
+  else if (email) type = 'email';
+  else if (rut) type = 'rut';
+  else if (phone) type = 'phone';
+  
+  const chatwootQueries = [...new Set([
+    ...aiData.emails || [],
+    ...aiData.phones || [],
+    ...aiData.ruts || [],
+    ...aiData.order_numbers || [],
+    ...aiData.st_tickets || [],
+    ...aiData.names || [],
+  ].filter(Boolean))];
+
+  return {
+    type,
+    name,
+    email,
+    orderNumber,
+    orderRaw: orderNumber ? orderNumber.replace(/^#+/, '') : undefined,
+    rut,
+    phoneDigits: phone ? phone.replace(/\D/g, '') : undefined,
+    shopifyNamesToTry: aiData.order_numbers || [],
+    chatwootQueries: chatwootQueries.length ? chatwootQueries : [query],
+    bsaleHints: {
+      email,
+      phone,
+      code: rut,
+      name
+    },
+    aiData
+  };
+}

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { getSupabase, upsertDeviceFacts, lookupRelatedByDevice } from '../lib/supabase.js';
 import { resolveCredentials } from '../lib/resolveCredentials.js';
-import { buildSearchPlan } from '../lib/searchPlan.js';
+import { buildSearchPlan, buildAiSearchPlan } from '../lib/searchPlan.js';
+import { analyzeSearchQuery } from '../services/gemini.js';
 import { searchChatwoot } from '../services/chatwoot.js';
 import { searchBsale } from '../services/bsale.js';
 import { searchShopify } from '../services/shopify.js';
@@ -285,13 +286,25 @@ function collectContactIdentifiers(cwData, shopifyBlock, plan) {
 
 searchRouter.get('/', async (req, res) => {
   const rawQ = String(req.query.q || '').trim();
-  const plan = buildSearchPlan(rawQ);
+  let plan = buildSearchPlan(rawQ);
   const supabase = getSupabase();
   let creds;
   try {
     creds = await resolveCredentials(supabase);
   } catch (e) {
     return res.status(500).json({ query: rawQ, error: e.message });
+  }
+
+  // AI ORCHESTRATION FAST PATH DECISION
+  // Si la búsqueda tiene espacios y es natural (ej: "cliente rut 16399092-k"), usamos IA.
+  if (rawQ.includes(' ') && rawQ.length > 8) {
+    const geminiKey = creds?.geminiApiKey || process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      const aiParams = await analyzeSearchQuery(rawQ, geminiKey);
+      if (aiParams) {
+        plan = buildAiSearchPlan(rawQ, aiParams);
+      }
+    }
   }
 
   let settled;
