@@ -106,6 +106,25 @@ async function postConversationLabels(convId, labelsList) {
   return res.json();
 }
 
+// ─── device classification helpers ─────────────────────────────────────────────
+
+function getDeviceCategory(model) {
+  if (!model) return null;
+  const m = String(model).toLowerCase();
+  if (m.includes('baby monitor') || m.includes('monitor')) return 'Monitor / Baby Monitor';
+  if (m.includes('tablet')) return 'Tablet';
+  if (m.includes('momophone pro')) return 'Celular';
+  if (m.includes('space') || m.includes('momophone') || m.includes('lite')) return 'Reloj / Smartwatch';
+  return null;
+}
+
+const CATEGORY_STYLES = {
+  'Reloj / Smartwatch': 'bg-sky-50 border-sky-200 text-sky-800',
+  'Tablet': 'bg-emerald-50 border-emerald-200 text-emerald-800',
+  'Monitor / Baby Monitor': 'bg-purple-50 border-purple-200 text-purple-800',
+  'Celular': 'bg-amber-50 border-amber-200 text-amber-800'
+};
+
 // ─── source status strip ───────────────────────────────────────────────────────
 
 function deriveSourceStatuses(data, meta) {
@@ -739,8 +758,8 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   // Identifiers extraídos de mensajes
   let imeis = (summary?.extracted_imei || []).filter(v => v.length === 15); // only full IMEIs
   let deviceIds = (summary?.extracted_imei || [])
-    .filter(v => v.length === 15 && v.startsWith('8'))
-    .map(v => v.slice(4, -1)); // derived 10-digit ID: remove first 4 + last digit
+    .map(v => v.length === 15 && v.startsWith('8') ? v.slice(4, -1) : v)
+    .filter(v => v.length === 10);
   let sims   = summary?.extracted_sim || [];
   let models = summary?.extracted_device_models || [];
 
@@ -749,8 +768,10 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     const facts = meta.equipmentFacts || [];
     const extractedImeis = facts.filter(f => f.label === 'ID / IMEI').map(f => f.value);
     if (extractedImeis.length) {
-      imeis = extractedImeis;
-      deviceIds = imeis.filter(v => v.length === 15 && v.startsWith('8')).map(v => v.slice(4, -1));
+      imeis = extractedImeis.filter(v => v.length === 15);
+      deviceIds = extractedImeis
+        .map(v => v.length === 15 && v.startsWith('8') ? v.slice(4, -1) : v)
+        .filter(v => v.length === 10);
     }
     const extractedSims = facts.filter(f => f.label === 'ICCID / SIM').map(f => f.value);
     if (extractedSims.length) {
@@ -886,11 +907,26 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       )}
 
       <FichaRow icon="📱" label="Modelo dispositivo" loading={idLoading}>
-        {models.length
-          ? <div className="space-y-1">{models.map((v) => (
-              <span key={v} className="inline-block text-xs font-bold text-momo-800 bg-momo-50 border border-momo-100 rounded-lg px-2 py-0.5">{v}</span>
-            ))}</div>
-          : <Empty />}
+        {models.length ? (
+          <div className="flex flex-wrap gap-2 items-center">
+            {models.map((v) => {
+              const category = getDeviceCategory(v);
+              const catStyle = category ? CATEGORY_STYLES[category] : 'bg-slate-50 border-slate-200 text-slate-700';
+              return (
+                <div key={v} className="inline-flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-block text-xs font-bold text-momo-800 bg-momo-50 border border-momo-100 rounded-lg px-2 py-0.5">{v}</span>
+                  {category && (
+                    <span className={`inline-block text-[10px] font-bold border rounded-md px-1.5 py-0.5 transition-all hover:scale-105 duration-200 cursor-default ${catStyle}`}>
+                      {category}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <Empty />
+        )}
       </FichaRow>
 
       <FichaRow icon="📡" label="IMEI" loading={idLoading}>

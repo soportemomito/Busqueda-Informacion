@@ -99,6 +99,30 @@ const PATTERNS = [
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
         .join(' ');
     }
+  },
+  {
+    // ID de dispositivo de 10 dígitos (extraído libre en mensajes con validación de contexto)
+    type: 'imei',
+    re: /\b(\d{10})\b/g,
+    normalize: (raw, g1, text) => {
+      const contextWords = /id|reloj|equipo|dispositivo|momo|imei|codigo|código|serie|gps|tablet|sim|card/i;
+      if (contextWords.test(text)) {
+        return g1;
+      }
+      return null;
+    }
+  },
+  {
+    // Pedidos Shopify de 5-7 dígitos sin prefijo (con validación de contexto)
+    type: 'shopify_order',
+    re: /\b(\d{5,7})\b/g,
+    normalize: (raw, g1, text) => {
+      const contextWords = /shopify|pedido|compra|orden|orden\s+de\s+compra|tienda|sm/i;
+      if (contextWords.test(text)) {
+        return 'SM' + g1;
+      }
+      return null;
+    }
   }
 ];
 
@@ -119,7 +143,7 @@ export function extractEntities(text) {
     let match;
     while ((match = regex.exec(text)) !== null) {
       const raw_value = match[0];
-      const normalized_value = normalize(match[0], match[1] ?? match[0]);
+      const normalized_value = normalize(match[0], match[1] ?? match[0], text);
       if (normalized_value === null) continue; // Descartar si el normalizador falló o no corresponde
       const key = `${type}:${normalized_value}`;
       if (seen.has(key)) continue;

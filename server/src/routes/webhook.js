@@ -481,6 +481,10 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             .eq('conversation_id', conversationId);
 
           const cwContactId = payload.sender?.id || payload.meta?.sender?.id;
+          const contactName = payload.meta?.sender?.name || existing?.contact_name || null;
+          const contactEmail = payload.meta?.sender?.email || existing?.contact_email || null;
+          const contactPhone = payload.meta?.sender?.phone_number || existing?.contact_phone || null;
+
           if (cwContactId) {
             const profileDevices = [];
             const imeisArr = [...currentImeis];
@@ -518,10 +522,6 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           if (cVal) allIdentifiers.push({ label: 'Comuna', value: cVal, conversationId });
           if (addrVal) allIdentifiers.push({ label: 'Dirección', value: addrVal, conversationId });
           if (fVal) allIdentifiers.push({ label: 'Falla', value: fVal, conversationId });
-
-          const contactName = payload.meta?.sender?.name || existing?.contact_name || null;
-          const contactEmail = payload.meta?.sender?.email || existing?.contact_email || null;
-          const contactPhone = payload.meta?.sender?.phone_number || existing?.contact_phone || null;
 
           if (contactEmail) allIdentifiers.push({ label: 'Email', value: contactEmail, conversationId });
           if (contactPhone) allIdentifiers.push({ label: 'Teléfono', value: contactPhone, conversationId });
