@@ -843,6 +843,24 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       setSending(false);
     }
   };
+
+  // Sincronización Forzada IA
+  const [syncing, setSyncing] = useState(false);
+  const handleForceSync = async () => {
+    if (!conversationId) return;
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/force-sync/${conversationId}`, { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      alert('✅ Análisis completado y datos guardados. Recargando...');
+      window.location.reload();
+    } catch (err) {
+      alert(`❌ Error en sincronización: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Toggle de etiqueta ST
   const [tagging, setTagging] = useState(false);
   const activeTicket = openTickets.find(o => o.conversationId === conversationId);
@@ -961,7 +979,25 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       <FichaRow icon="✨" label="Resumen del Chat" loading={idLoading}>
         {summary?.ai_summary
           ? <p className="text-xs text-slate-700 leading-relaxed font-semibold bg-slate-50 border border-slate-100 rounded-xl p-2.5">{summary.ai_summary}</p>
-          : <span className="text-xs text-slate-400 italic">No hay un resumen disponible para este ticket. Envía un mensaje para generarlo automáticamente de forma gratuita.</span>}
+          : <span className="text-xs text-slate-400 italic mb-2 block">No hay un resumen disponible o los datos son muy antiguos. Utiliza el análisis manual.</span>}
+        <button 
+          onClick={handleForceSync}
+          disabled={syncing || !conversationId}
+          className="mt-1.5 text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-1 rounded-md font-bold hover:bg-purple-100 transition-colors disabled:opacity-50"
+        >
+          {syncing ? '⌛ Reanalizando...' : '🔄 Forzar Análisis IA'}
+        </button>
+      </FichaRow>
+
+      <FichaRow icon="💛" label="Sentimiento" loading={idLoading}>
+        {summary?.customer_sentiment 
+          ? <span className="text-xs font-bold text-slate-700 capitalize">{summary.customer_sentiment}</span> 
+          : <Empty />}
+      </FichaRow>
+      <FichaRow icon="🧠" label="Complejidad" loading={idLoading}>
+        {summary?.issue_complexity 
+          ? <span className="text-xs font-bold text-slate-700 capitalize">{summary.issue_complexity}</span> 
+          : <Empty />}
       </FichaRow>
       {/* ── tickets abiertos ── */}
       <FichaRow icon="🎫" label="Tickets Abiertos" loading={liveLoading}>

@@ -9,6 +9,7 @@ import { setupRouter } from './routes/setup.js';
 import { chatwootActionsRouter } from './routes/chatwootActions.js';
 import { webhookRouter } from './routes/webhook.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { aiSyncRouter } from './routes/aiSync.js';
 // Panel routes (spec)
 import { healthRouter } from './routes/health.js';
 import { panelRouter } from './routes/panel.js';
@@ -47,6 +48,7 @@ app.use('/api/chatwoot', chatwootActionsRouter);
 app.use('/api/config', configRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/conversations', conversationsRouter);
+app.use('/api/force-sync', aiSyncRouter);
 
 // Sirve el cliente React buildado. En desarrollo no existe la carpeta, se ignora.
 // Assets con hash (JS/CSS): cache largo. index.html: sin cache para ver cambios al instante.
