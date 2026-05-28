@@ -846,20 +846,29 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
 
   // Sincronización Forzada IA
   const [syncing, setSyncing] = useState(false);
+  const hasAttemptedAutoSync = useRef(false);
+
   const handleForceSync = async () => {
     if (!conversationId) return;
     setSyncing(true);
     try {
       const res = await fetch(`/api/force-sync/${conversationId}`, { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
-      alert('✅ Análisis completado y datos guardados. Recargando...');
       window.location.reload();
     } catch (err) {
-      alert(`❌ Error en sincronización: ${err.message}`);
+      console.error(`❌ Error en sincronización: ${err.message}`);
     } finally {
       setSyncing(false);
     }
   };
+
+  // Automatizar sincronización si el ticket no tiene resumen y no lo hemos intentado en esta vista
+  useEffect(() => {
+    if (conversationId && !summary?.ai_summary && !syncing && !hasAttemptedAutoSync.current) {
+      hasAttemptedAutoSync.current = true;
+      handleForceSync();
+    }
+  }, [conversationId, summary]);
 
   // Toggle de etiqueta ST
   const [tagging, setTagging] = useState(false);
@@ -979,7 +988,7 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       <FichaRow icon="✨" label="Resumen del Chat" loading={idLoading}>
         {summary?.ai_summary
           ? <p className="text-xs text-slate-700 leading-relaxed font-semibold bg-slate-50 border border-slate-100 rounded-xl p-2.5">{summary.ai_summary}</p>
-          : <span className="text-xs text-slate-400 italic mb-2 block">No hay un resumen disponible o los datos son muy antiguos. Utiliza el análisis manual.</span>}
+          : <span className="text-xs text-slate-400 italic mb-2 block">{syncing ? '⌛ Reanalizando con Gemini de forma automática...' : 'No hay un resumen disponible o los datos son muy antiguos.'}</span>}
         <button 
           onClick={handleForceSync}
           disabled={syncing || !conversationId}

@@ -100,8 +100,9 @@ function filterRelevantMessages(messages) {
   return (messages || []).filter((m) => {
     const type = m.message_type;
     const isCustomer     = type === 0 || type === '0' || type === 'incoming';
+    const isOutgoing     = type === 1 || type === '1' || type === 'outgoing';
     const isInternalNote = m.private === true || type === 2 || type === '2' || type === 'activity';
-    return isCustomer || isInternalNote;
+    return isCustomer || isOutgoing || isInternalNote;
   });
 }
 
