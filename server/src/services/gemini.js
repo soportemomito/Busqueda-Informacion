@@ -62,6 +62,15 @@ ${formatted}`;
               type: "ARRAY",
               items: { type: "STRING" },
               description: "IDs de compras o pedidos de tienda (ej: SM12345, #9876)"
+            },
+            rut: { 
+              type: "STRING", 
+              description: "RUT chileno del cliente, si lo menciona (formato XX.XXX.XXX-X o XXXXXXXX-X)" 
+            },
+            failure_categories: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "Clasificación de fallas mencionadas (usar exacto: 'Batería/Carga', 'Pantalla', 'Señal/SIM', 'GPS/Ubicación', 'Encendido/Boot', 'Audio/Micrófono', 'Aplicación/App', u otra si no encaja)."
             }
           }
         }

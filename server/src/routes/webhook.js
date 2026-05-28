@@ -302,6 +302,13 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           if (aiData.shopify_orders && Array.isArray(aiData.shopify_orders)) {
             for (const sm of aiData.shopify_orders) currentShopify.add(sm);
           }
+          if (aiData.rut) {
+            const rVal = cleanRut(aiData.rut);
+            if (rVal) currentRuts.add(rVal);
+          }
+          if (aiData.failure_categories && Array.isArray(aiData.failure_categories)) {
+            for (const fc of aiData.failure_categories) currentFallas.add(fc);
+          }
           customerSentiment = aiData.customer_sentiment || null;
           issueComplexity = aiData.issue_complexity || null;
         }
@@ -408,6 +415,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             falla: [...currentFallas].join(', ') || null,
             resumen: aiSummary || null,
             direccion: currentAddress || null,
+            customer_sentiment: customerSentiment || null,
+            issue_complexity: issueComplexity || null,
           }).catch((err) => console.error('[chatwoot_writeback] Error en segundo plano:', err.message));
         }
       }

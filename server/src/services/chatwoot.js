@@ -155,6 +155,8 @@ function mapConversation(c) {
     status: c.status,
     isOpen: c.status === 'open' || c.status === 'pending',
     aiSummary: extractAiSummary(c.custom_attributes),
+    customerSentiment: c.custom_attributes?.customer_sentiment || null,
+    issueComplexity: c.custom_attributes?.issue_complexity || null,
     labels: labels.map((l) => l.title || l.name).filter(Boolean),
     stTagged: hasStLabel(labels),
     raw: c,

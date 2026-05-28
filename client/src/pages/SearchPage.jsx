@@ -634,6 +634,16 @@ function ConversationCard({ row, chatwootApp }) {
           {row.stTagged && (
             <span className="text-[10px] font-bold border rounded-md px-1.5 py-0.5 bg-momo-50 border-momo-100 text-momo-800">Serv. Técnico</span>
           )}
+          {row.customerSentiment && (
+            <span className={`text-[10px] font-bold border rounded-md px-1.5 py-0.5 ${row.customerSentiment === 'positive' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : row.customerSentiment === 'frustrated' || row.customerSentiment === 'negative' ? 'bg-red-50 text-red-800 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+              {row.customerSentiment === 'positive' ? '😊 Positivo' : row.customerSentiment === 'frustrated' ? '😠 Frustrado' : row.customerSentiment === 'negative' ? '🙁 Negativo' : '😐 Neutral'}
+            </span>
+          )}
+          {row.issueComplexity && (
+            <span className={`text-[10px] font-bold border rounded-md px-1.5 py-0.5 ${row.issueComplexity === 'high' ? 'bg-rose-50 text-rose-800 border-rose-200' : row.issueComplexity === 'medium' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+              {row.issueComplexity === 'high' ? '🔥 Alta Complejidad' : row.issueComplexity === 'medium' ? '⚡ Media Complejidad' : '🟢 Baja Complejidad'}
+            </span>
+          )}
           
           {/* Failure badges */}
           {fallas.map((f, idx) => {
