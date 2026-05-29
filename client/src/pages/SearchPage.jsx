@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSearch, resolveChatwootConversation, fetchContactPreview, fetchConversationSummary } from '../api/client.js';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';

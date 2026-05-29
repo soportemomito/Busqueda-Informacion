@@ -67,9 +67,9 @@ De los mensajes del chat (vía webhook `message_created`):
 - Correo, teléfono, RUT (regex)
 - IMEI, SIM, ID de dispositivo
 - Modelo del dispositivo
+- Color del dispositivo
 - Número de orden Shopify, número de orden ST
-- Fallas reportadas (batería, pantalla, señal, GPS, etc.)
-- Comuna
+
 
 **No almacenamos ni mostramos direcciones completas** — solo la comuna.
 
@@ -81,10 +81,10 @@ Identificar la categoría del dispositivo mencionado en el chat para contextuali
 
 | Categoría | Modelos SoyMomo asociados |
 |-----------|--------------------------|
-| **Reloj / Smartwatch** | SoyMomo Space 1, 1.5, 2, 3, Lite, Momophone |
+| **Reloj / Smartwatch** | SoyMomo Space 1, 2, 3, 4, Lite, Space|
 | **Tablet** | SoyMomo Tablet, Tablet Lite 2, Tablet Lite 3, Tablet Pro, Tablet Pro 2 |
 | **Monitor / Baby Monitor** | Baby Monitor, Baby Monitor Lite, Baby Monitor Pro, Baby Monitor Pro 2 |
-| **Celular** | Momophone Pro |
+| **Celular** | Momophone Pro, Momophone|
 
 La categoría debe mostrarse como chip visual en la Ficha del Cliente.
 
@@ -145,7 +145,7 @@ Cuando el cliente ingresó su equipo a servicio técnico, el sistema puede ident
 - **Hoja "Entrada"** — registro de entrada
 - **Hoja "Salida"** — informe de salida/reparación
 
-Para cada orden encontrada, mostrar **solo un botón de acceso directo** al informe correspondiente (entrada y/o salida). No necesitamos mostrar todos los datos inline — el botón es suficiente.
+Para cada orden encontrada, mostrar **solo un botón de acceso directo** al informe correspondiente (entrada y/o salida en caso de no estar el de salida, solo el de entrada). No necesitamos mostrar todos los datos inline — el botón es suficiente.
 
 Esto ya está implementado en `SectionServiceOrders` con botones "Ver Informe Entrada ↗" y "Ver Informe Salida ↗".
 
