@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getSupabase } from '../lib/supabase.js';
 import { resolveCredentials } from '../lib/resolveCredentials.js';
-import { generateGeminiSummaryAndFacts } from '../services/gemini.js';
+import { callGeminiApi } from '../services/gemini.js';
 import { writeAttributesToChatwoot } from '../services/chatwoot_writeback.js';
 import { fetchConversationMessages } from '../services/chatwoot.js';
 import axios from 'axios';
@@ -82,59 +82,38 @@ aiSyncRouter.post('/:conversationId', async (req, res) => {
       return res.status(400).json({ error: 'No hay mensajes para analizar' });
     }
 
-    // Adaptamos los mensajes al formato esperado por generateGeminiSummaryAndFacts
     const messagesForSummary = rawMessages.map(m => ({
       content: m.content || '',
       message_type: String(m.message_type),
       sender_type: m.sender?.type,
       private: m.private || false
-    })).sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    }));
 
-    // 3. Ejecutar Gemini (esto ignora atributos viejos de Chatwoot y extrae 100% fresco del texto)
-    const aiData = await generateGeminiSummaryAndFacts(
-      messagesForSummary, 
-      contactName, 
-      { geminiApiKey: geminiKey }, 
-      null // chatwootMeta null para forzar que use Gemini
-    );
-
-    const email = aiData.contact_email;
-    const phone = aiData.contact_phone;
-    const rut = aiData.extracted_ruts?.[0] || null;
-    const comuna = aiData.extracted_comunas?.[0] || null;
-    const falla = aiData.extracted_failures?.[0] || null;
-    // Ojo: generateGeminiSummaryAndFacts (en su fallback) extrae del texto, 
-    // pero idealmente extrajo un objeto de IA en webhook.js
-    // Como lo llamamos directamente, nos devuelve un objeto.
-    
-    // NOTA: 'generateGeminiSummaryAndFacts' prioriza callGeminiApi que devuelve un JSON estructurado.
-    // Ese JSON luego es pisado a string por "aiSummary = await callGeminiApi(..)". 
-    // Wait, let's use our robust manual call directly to gemini to ensure we get the full JSON 
-    // as webhook.js does!
-    
-    // Mejor copiamos la lógica sólida del webhook:
-    const { callGeminiApi } = await import('../services/gemini.js');
+    // 3. Single Gemini call — structured JSON with all fields
     const fullAiJson = await callGeminiApi(geminiKey, messagesForSummary);
-    
-    let aiSummary = fullAiJson?.ai_summary || aiData.ai_summary;
-    let finalRut = rut;
-    let finalComuna = comuna;
+
+    let aiSummary = fullAiJson?.ai_summary || null;
+    let finalRut = null;
+    let finalComuna = null;
     let finalAddress = null;
-    let finalFalla = falla;
-    let finalEmail = email;
-    let finalPhone = phone;
+    let finalFalla = null;
+    let finalEmail = contact?.email || null;
+    let finalPhone = contact?.phone_number || null;
     let sentiment = null;
     let complexity = null;
 
     if (fullAiJson && typeof fullAiJson === 'object') {
-      if (fullAiJson.rut) finalRut = String(fullAiJson.rut).replace(/[\s.-]/g, '').toUpperCase().slice(0, -1) + '-' + String(fullAiJson.rut).replace(/[\s.-]/g, '').toUpperCase().slice(-1);
+      if (fullAiJson.rut) {
+        const r = String(fullAiJson.rut).replace(/[\s.-]/g, '').toUpperCase();
+        finalRut = r.slice(0, -1) + '-' + r.slice(-1);
+      }
       if (fullAiJson.location?.comuna) finalComuna = fullAiJson.location.comuna;
       if (fullAiJson.location?.address) finalAddress = fullAiJson.location.address;
       if (fullAiJson.failure_categories?.[0]) finalFalla = fullAiJson.failure_categories[0];
       if (fullAiJson.alt_email) finalEmail = fullAiJson.alt_email.toLowerCase();
       if (fullAiJson.phone) finalPhone = String(fullAiJson.phone).replace(/[^\d+]/g, '');
-      sentiment = fullAiJson.customer_sentiment;
-      complexity = fullAiJson.issue_complexity;
+      sentiment = fullAiJson.customer_sentiment || null;
+      complexity = fullAiJson.issue_complexity || null;
     }
 
     // 4. Sobrescribir Chatwoot (limpiar basura)
@@ -155,22 +134,44 @@ aiSyncRouter.post('/:conversationId', async (req, res) => {
     console.log(`[aiSync] Enviando atributos limpios a Chatwoot:`, attributesToWrite);
     await writeAttributesToChatwoot(creds, accountId, contactId, conversationId, attributesToWrite);
 
-    // 5. Actualizar Supabase
+    // 5. Actualizar Supabase — preservar arrays existentes (extracted_imei, etc.)
+    const convIdInt = Number(conversationId);
+
+    // Fetch existing row so we don't wipe arrays already stored by the webhook
+    const { data: existing } = await supabase
+      .from('conversation_summaries')
+      .select('extracted_imei, extracted_sim, extracted_st_tickets, extracted_shopify_orders, extracted_device_models, last_message_at')
+      .eq('conversation_id', convIdInt)
+      .maybeSingle();
+
+    // Merge Gemini-extracted arrays from messages into existing ones
+    const mergeArrays = (...arrs) => [...new Set(arrs.flat().filter(Boolean))];
+    const geminiServiceOrders = (fullAiJson?.service_orders || []).map(String);
+    const geminiShopifyOrders = (fullAiJson?.shopify_orders || []).map(String);
+    const geminiDevices       = (fullAiJson?.devices_mentioned || []).map(d => d.imei).filter(Boolean);
+    const geminiSims          = (fullAiJson?.devices_mentioned || []).map(d => d.sim).filter(Boolean);
+
     const summaryPayload = {
-      conversation_id: conversationId,
+      conversation_id: convIdInt,
       contact_id: contactId,
       contact_name: contactName,
       contact_email: finalEmail,
       contact_phone: finalPhone,
       ai_summary: aiSummary,
       extracted_address: finalAddress,
-      updated_at: new Date().toISOString()
+      customer_sentiment: sentiment,
+      issue_complexity: complexity,
+      extracted_imei:           mergeArrays(existing?.extracted_imei || [], geminiDevices),
+      extracted_sim:            mergeArrays(existing?.extracted_sim  || [], geminiSims),
+      extracted_st_tickets:     mergeArrays(existing?.extracted_st_tickets || [], geminiServiceOrders),
+      extracted_shopify_orders: mergeArrays(existing?.extracted_shopify_orders || [], geminiShopifyOrders),
+      extracted_device_models:  existing?.extracted_device_models || [],
+      last_message_at:          existing?.last_message_at || new Date().toISOString(),
+      updated_at:               new Date().toISOString(),
     };
-    
-    // Intentar upsert del summary
-    await supabase.from('conversation_summaries').upsert(summaryPayload);
 
-    // Para los ruts y otros arrays, podemos meterlos, pero ya limpiamos lo importante.
+    const { error: upsertErr } = await supabase.from('conversation_summaries').upsert(summaryPayload);
+    if (upsertErr) console.error('[aiSync] Error upserting summary:', upsertErr.message);
 
     return res.json({ success: true, extracted: attributesToWrite });
   } catch (err) {

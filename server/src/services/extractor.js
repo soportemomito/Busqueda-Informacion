@@ -48,9 +48,23 @@ const PATTERNS = [
     normalize: (_, g1) => 'SM' + g1,
   },
   {
+    // Service order with prefix: OS-XXXX, E-XXXX, P-XXXX, ST-XXXX (and variants without hyphen/space)
     type: 'service_order',
-    re: /\bOS[-\s]?(\d{3,6})\b/gi,
-    normalize: (_, g1) => 'OS-' + g1,
+    re: /\b((?:OS|ST|E|P)[-\s]?\d{3,6})\b/gi,
+    normalize: (raw, g1) => {
+      const m = g1.replace(/\s/g, '').match(/^([A-Za-z]+)-?(\d+)$/i);
+      if (!m) return null;
+      return `${m[1].toUpperCase()}-${m[2]}`;
+    },
+  },
+  {
+    // Bare 3-5 digit number in service-order context (e.g. "orden 5211", "ingreso 5211", "OS 5211")
+    type: 'service_order',
+    re: /\b(\d{3,5})\b/g,
+    normalize: (raw, g1, text) => {
+      const stCtx = /\b(?:OS|ST|orden\s+(?:de\s+)?(?:servicio|st|os|ingreso)|n[°º]?\s*OS|n[°º]?\s*ST|ingres[oó](?:\s+(?:de\s+)?(?:servicio|ST))?|servicio\s+t[eé]cnico)\b/i;
+      return stCtx.test(text) ? g1 : null;
+    },
   },
   {
     // SoyMomo device model — with explicit "Modelo [de reloj]:" label OR inline product name

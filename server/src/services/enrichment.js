@@ -290,12 +290,31 @@ async function fromDbDevices(ctx, db, imeis) {
 const SERVICE_ORDERS_SELECT = 'id, order_number, status, technician, received_at, device_id, contact_name, contact_email, report_url, entry_report_url';
 
 async function fromDbServiceOrders(ctx, db, orderNumbers) {
+  // Always search the original value as-is (covers sheets that store bare numbers like "5211").
+  // Then add prefix variants ("5211" → "E-5211", "P-5211", "ST-5211", "OS-5211")
+  // and strip prefix ("E-5211" → "5211") to handle any inconsistency between chat text and sheet data.
+  const variants = new Set(orderNumbers);
+  for (const num of orderNumbers) {
+    const bare = num.match(/^(\d+)$/);
+    if (bare) {
+      const n = bare[1];
+      variants.add(`E-${n}`); variants.add(`P-${n}`);
+      variants.add(`ST-${n}`); variants.add(`OS-${n}`);
+    }
+    const prefixed = num.match(/^([A-Z]+)-(\d+)$/);
+    if (prefixed) variants.add(prefixed[2]);
+  }
+
   const { data } = await db.from('service_orders')
     .select(SERVICE_ORDERS_SELECT)
-    .in('order_number', orderNumbers);
+    .in('order_number', [...variants]);
   const rows = data || [];
   for (const o of rows) {
-    if (!ctx.serviceOrders.has(o.order_number)) ctx.serviceOrders.set(o.order_number, o);
+    if (!ctx.serviceOrders.has(o.order_number)) {
+      ctx.serviceOrders.set(o.order_number, o);
+      // Phase 4: email from service order feeds Shopify/Bsale enrichment
+      if (o.contact_email) ctx.addDirectEmail(o.contact_email);
+    }
   }
   // Batch-fetch device IMEIs in one query instead of N+1
   const deviceIds = [...new Set(rows.filter(o => o.device_id).map(o => o.device_id))];
@@ -312,6 +331,8 @@ async function fromDbServiceOrdersByEmail(ctx, db, emails) {
   for (const o of data || []) {
     if (ctx.serviceOrders.has(o.order_number)) continue;
     ctx.serviceOrders.set(o.order_number, o);
+    // Email confirmed from order record — mark as trusted for Shopify/Bsale
+    if (o.contact_email) ctx.addDirectEmail(o.contact_email);
   }
 }
 

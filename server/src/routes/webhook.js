@@ -340,6 +340,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           extracted_shopify_orders: [...currentShopify],
           extracted_device_models: [...currentModels],
           extracted_address: currentAddress,
+          customer_sentiment: customerSentiment,
+          issue_complexity: issueComplexity,
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });

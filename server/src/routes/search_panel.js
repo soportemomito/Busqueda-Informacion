@@ -65,9 +65,22 @@ panelSearchRouter.get('/', async (req, res) => {
       ? await getDuplicateSignals(chatwootConvIds).catch(() => [])
       : [];
 
+    // Fetch AI summary for the current conversation if available
+    let conversationSummary = null;
+    if (conversation_id) {
+      const { data: summary } = await db
+        .from('conversation_summaries')
+        .select('ai_summary, contact_name, contact_email, updated_at, customer_sentiment, issue_complexity')
+        .eq('conversation_id', Number(conversation_id))
+        .maybeSingle()
+        .catch(() => ({ data: null }));
+      if (summary?.ai_summary) conversationSummary = summary;
+    }
+
     res.json({
       ...result,
       duplicate_signals: duplicateSignals,
+      conversation_summary: conversationSummary,
       meta: { found },
     });
 
