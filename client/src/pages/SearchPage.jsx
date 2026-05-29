@@ -760,6 +760,8 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   const bs = searchData?.bsale;
   const sh = searchData?.shopify;
 
+  const queryClient = useQueryClient();
+
   // Identidad — DB primero, search como fallback
   const name = summary?.contact_name || meta?.contactSummary?.name || null;
   const email = summary?.contact_email || meta?.contactSummary?.email || null;
@@ -797,6 +799,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
   let ruts = [];
   let comunas = [];
   let address = summary?.extracted_address || null;
+  
+  // Extraer Sentimiento y Complejidad
+  const activeTicketFallback = meta?.openConversations?.find(o => o.conversationId === conversationId);
+  const sentiment = summary?.customer_sentiment || activeTicketFallback?.customerSentiment || null;
+  const complexity = summary?.issue_complexity || activeTicketFallback?.issueComplexity || null;
+
   if (meta?.equipmentFacts) {
     const facts = meta.equipmentFacts || [];
     ruts = [...new Set(facts.filter(f => f.label === 'RUT').map(f => f.value))];
@@ -853,8 +861,12 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
     setSyncing(true);
     try {
       const res = await fetch(`/api/force-sync/${conversationId}`, { method: 'POST' });
-      if (!res.ok) throw new Error(await res.text());
-      window.location.reload();
+      // En lugar de recargar toda la página y perder el estado de react (causando bucles),
+      // invalidamos las queries para que React Query recargue los datos silenciosamente.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['search'] }),
+        queryClient.invalidateQueries({ queryKey: ['summary', conversationId] })
+      ]);
     } catch (err) {
       console.error(`❌ Error en sincronización: ${err.message}`);
     } finally {
@@ -999,13 +1011,13 @@ function ClientFicha({ conversationId, summaryData, isSummaryLoading, searchData
       </FichaRow>
 
       <FichaRow icon="💛" label="Sentimiento" loading={idLoading}>
-        {summary?.customer_sentiment 
-          ? <span className="text-xs font-bold text-slate-700 capitalize">{summary.customer_sentiment}</span> 
+        {sentiment 
+          ? <span className="text-xs font-bold text-slate-700 capitalize">{sentiment}</span> 
           : <Empty />}
       </FichaRow>
       <FichaRow icon="🧠" label="Complejidad" loading={idLoading}>
-        {summary?.issue_complexity 
-          ? <span className="text-xs font-bold text-slate-700 capitalize">{summary.issue_complexity}</span> 
+        {complexity 
+          ? <span className="text-xs font-bold text-slate-700 capitalize">{complexity}</span> 
           : <Empty />}
       </FichaRow>
       {/* ── tickets abiertos ── */}
