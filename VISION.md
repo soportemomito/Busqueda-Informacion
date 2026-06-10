@@ -40,6 +40,69 @@ Muestra ficha consolidada: identidad + historial + Shopify + Bsale + ST
 
 ---
 
+## 3b. Flujo deseado (detalle explícito — referencia de implementación)
+
+Este es el flujo que debe ejecutar el sistema en cada apertura de ticket, paso a paso:
+
+### Paso 1 — Captura del ticket
+Al abrir una conversación en Chatwoot, el panel captura automáticamente el `conversation_id`.
+
+### Paso 2 — Datos del contacto (Chatwoot)
+Leer directamente del perfil del contacto en Chatwoot (no de los mensajes):
+- **Nombre** — siempre disponible
+- **Correo** — puede estar vacío; ignorar si no existe
+- **Teléfono** — puede estar vacío; ignorar si no existe
+
+### Paso 3 — Búsqueda en Shopify
+Con el correo **o** el teléfono del paso anterior, buscar en Shopify:
+- Búsqueda por `email:correo@ejemplo.com` o `phone:+56XXXXXXXXX`
+- Si se encuentran pedidos, extraer de `note_attributes`:
+  - `BSALE-FOLIO` → número de boleta
+  - `BSALE-FOLIO-ID` → ID interno de Bsale
+  - `BSALE-FOLIO-PDF` → URL del PDF de la boleta
+- Del objeto `customer` extraer: nombre, correo, teléfono y `shipping_address` (usar solo la **comuna**, nunca la dirección completa)
+
+### Paso 4 — Cruce con Google Sheets ST
+Con el correo disponible (de Chatwoot o de Shopify/customer), cruzar contra la planilla "ST":
+- Hoja **"entradas"** → registros de ingreso
+- Hoja **"entrada recepción"** → registros de recepción
+- Hoja **"salida"** → registros de entrega/salida
+- El cruce se hace por correo, nombre o número de orden (lo que esté disponible)
+
+### Paso 5 — Construcción y presentación de la Ficha
+Con todos los datos recopilados, construir la ficha del cliente con este formato:
+
+```
+Nombre:        [nombre del contacto]
+Correo:        [correo]
+Telefono:      [teléfono]
+IMEI/ID:       [IMEI 15 dígitos o ID 10 dígitos extraído de mensajes]
+SIM:           [ICCID/SIM SoyMomo extraído de mensajes]
+Boletas:       [folios Bsale + enlace PDF si existe]
+Pedidos:       [número(s) pedido Shopify + estado pago/envío]
+Ingresos ST:   [órdenes de hojas "entradas" y "entrada recepción"]
+Salidas ST:    [órdenes de hoja "salida"]
+Ticket: #XXXX  "Resumen breve del ticket"  OPEN / CLOSED
+Ticket: #XXXX  "Resumen breve del ticket"  OPEN / CLOSED
+```
+
+### Paso 6 — Persistencia en Supabase ✅ IMPLEMENTADO
+La ficha completa se guarda en `client_profiles` (columnas `bsale_folios`, `tickets`, `ficha_markdown`, `ficha_synced_at` — migración 013) para:
+- Evitar búsquedas repetidas en atenciones futuras del mismo cliente
+- Acumular historial (identificado por correo > teléfono > IMEI, en orden de prioridad)
+- Disponibilizar los datos en consultas futuras sin llamar a APIs externas cada vez
+
+### Paso 7 — Ficha como NOTA DE CONTACTO en Chatwoot ✅ IMPLEMENTADO
+La ficha consolidada se sincroniza automáticamente como **nota en el contacto de Chatwoot**
+(`server/src/services/ficha.js`), de modo que el equipo la ve directamente en Chatwoot
+**sin depender del panel web**:
+- Se dispara automáticamente en cada búsqueda del panel (`/api/search`) y en cada mensaje vía webhook
+- Deduplicada por el marcador `📋 Ficha ST Consolidada`: si ya existe se actualiza (PUT), nunca se duplica
+- Si el contenido no cambió, no se llama a la API (`unchanged`)
+- Endpoint manual: `POST /api/chatwoot/contacts/:contactId/ficha` re-sincroniza desde `client_profiles`
+
+---
+
 ## 4. Identificadores de dispositivos SoyMomo
 
 Los clientes adjuntan estos datos en los mensajes, a veces con nombres distintos al técnico. El sistema debe detectarlos sin importar la etiqueta que use el cliente.
@@ -161,7 +224,9 @@ Acciones disponibles directamente desde nuestra app sin abrir Chatwoot:
 | Abrir ticket en Chatwoot (link) | ✅ Implementado |
 | Marcar ticket como resuelto | ✅ Implementado (`Marcar Resuelta`) |
 | Agregar/quitar etiqueta ST | ✅ Implementado |
-| Enviar ficha como nota interna | ✅ Implementado |
+| Enviar ficha como nota interna (conversación) | ✅ Implementado |
+| Ficha como nota de CONTACTO (auto-sync, sin panel) | ✅ Implementado (`services/ficha.js`) |
+| Re-sincronizar ficha manualmente | ✅ `POST /api/chatwoot/contacts/:id/ficha` |
 
 ---
 
@@ -193,9 +258,10 @@ supabase/        → Migraciones y esquema de base de datos
 
 ### Alta prioridad
 
-- [ ] **Clasificación de tipo de dispositivo** — mostrar chip "Reloj / Tablet / Monitor / Celular" en la Ficha basado en el modelo detectado
-- [ ] **Detección de ID de 10 dígitos libre en mensajes** — el cliente puede escribir solo el ID sin prefijo. Regex: `\b\d{10}\b` con validación de contexto para no generar falsos positivos
-- [ ] **Mejor extracción de número de orden Shopify sin prefijo** — algunos clientes escriben solo el número sin "SM"
+- [x] **Clasificación de tipo de dispositivo** — chip en la Ficha del panel (`getDeviceCategory` en SearchPage.jsx) y en la ficha de nota de contacto (`getDeviceCategory` en services/ficha.js)
+- [x] **Detección de ID de 10 dígitos libre en mensajes** — implementado en `services/extractor.js` con validación de contexto (palabras: id, reloj, equipo, imei, etc.)
+- [x] **Mejor extracción de número de orden Shopify sin prefijo** — implementado en `services/extractor.js` (5-7 dígitos con contexto: pedido, compra, orden, shopify)
+- [x] **Persistencia automática de la ficha en `client_profiles`** — en cada búsqueda del panel y cada mensaje del webhook (fix crítico: bug de scope de `aiData` en webhook.js impedía TODO el guardado)
 
 ### Media prioridad
 
@@ -243,4 +309,4 @@ GOOGLE_SHEETS_ID          — ID de la planilla de Google Sheets con órdenes ST
 
 ---
 
-*Última actualización: 2026-05-28*
+*Última actualización: 2026-06-10*

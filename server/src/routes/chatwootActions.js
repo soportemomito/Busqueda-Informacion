@@ -2,6 +2,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { getSupabase } from '../lib/supabase.js';
 import { resolveCredentials } from '../lib/resolveCredentials.js';
+import { upsertContactFichaNote } from '../services/ficha.js';
 
 export const chatwootActionsRouter = Router();
 
@@ -108,6 +109,57 @@ chatwootActionsRouter.post('/conversations/:id/notes', async (req, res) => {
     res.status(status && status >= 400 ? status : 500).json({
       error: `Chatwoot: ${msg}`,
     });
+  }
+});
+
+/**
+ * Re-sincroniza la ficha consolidada almacenada en client_profiles como
+ * nota de contacto en Chatwoot. Útil para forzar la sincronización sin
+ * esperar una nueva búsqueda o mensaje.
+ * POST /api/chatwoot/contacts/:contactId/ficha
+ */
+chatwootActionsRouter.post('/contacts/:contactId/ficha', async (req, res) => {
+  const contactId = Number(req.params.contactId);
+  if (!Number.isFinite(contactId) || contactId < 1) {
+    return res.status(400).json({ error: 'contactId inválido' });
+  }
+
+  try {
+    const supabase = getSupabase();
+    const creds = await resolveCredentials(supabase);
+    const accountId = String(creds.chatwootAccountId || '1');
+
+    if (!creds.chatwootBaseUrl || !creds.chatwootApiToken) {
+      return res.status(503).json({ error: 'Chatwoot no configurado (CHATWOOT_BASE_URL / CHATWOOT_API_TOKEN)' });
+    }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase no configurado' });
+    }
+
+    const { data: profile } = await supabase
+      .from('client_profiles')
+      .select('ficha_markdown')
+      .eq('chatwoot_contact_id', contactId)
+      .maybeSingle();
+
+    if (!profile?.ficha_markdown) {
+      return res.status(404).json({
+        error: 'No hay ficha almacenada para este contacto. Abre el ticket en el panel para generarla.',
+      });
+    }
+
+    const result = await upsertContactFichaNote(creds, accountId, contactId, profile.ficha_markdown);
+    await supabase
+      .from('client_profiles')
+      .update({ ficha_synced_at: new Date().toISOString() })
+      .eq('chatwoot_contact_id', contactId);
+
+    res.json({ ok: true, contactId, result });
+  } catch (e) {
+    const status = e.response?.status;
+    const d = e.response?.data;
+    const msg = typeof d === 'string' ? d : d?.error || d?.message || e.message;
+    res.status(status && status >= 400 ? status : 500).json({ error: `Chatwoot: ${msg}` });
   }
 });
 

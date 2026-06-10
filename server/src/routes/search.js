@@ -8,6 +8,7 @@ import { searchBsale } from '../services/bsale.js';
 import { searchShopify } from '../services/shopify.js';
 import { shopifyStoreOriginFromApiBase } from '../services/shopify.js';
 import { flattenDeviceFactsForMeta } from '../lib/extractDeviceFacts.js';
+import { syncFicha } from '../services/ficha.js';
 
 export const searchRouter = Router();
 
@@ -637,6 +638,81 @@ searchRouter.get('/', async (req, res) => {
     },
     strictNameNote: strictNameNotes.length ? [...new Set(strictNameNotes)].join(' ') : null,
   };
+
+  // === FICHA CONSOLIDADA ===
+  // Con todos los datos de la búsqueda, persistir la ficha en client_profiles y
+  // sincronizarla como nota de contacto en Chatwoot (fire-and-forget).
+  {
+    const cwContactId = cwData?.contacts?.[0]?.id || null;
+    if (cwContactId) {
+      const factsByLabel = (label) =>
+        [...new Set(equipmentFacts.filter((fc) => fc.label === label).map((fc) => fc.value))];
+
+      const imeisAll = factsByLabel('ID / IMEI');
+      const bsItems = bsaleBlock.status === 'ok' ? bsaleBlock.data?.items || [] : [];
+      const shOrders =
+        shopifyBlock.status === 'ok' && !shopifyBlock.data?.skipped
+          ? shopifyBlock.data?.orders || []
+          : [];
+
+      // Boletas: documentos Bsale + folios anotados en pedidos Shopify (note_attributes)
+      const boletas = bsItems.map((b) => ({
+        number: b.number, url: b.urlPublicView || null, total: b.total ?? null, date: b.emissionDate,
+      }));
+      const knownFolios = new Set(boletas.map((b) => String(b.number)));
+      for (const o of shOrders) {
+        if (o.bsaleFolio && !knownFolios.has(String(o.bsaleFolio))) {
+          knownFolios.add(String(o.bsaleFolio));
+          boletas.push({ number: o.bsaleFolio, url: o.bsaleFolioPdf || null, total: null, date: o.createdAt });
+        }
+      }
+
+      // Órdenes ST: entradas (hojas "entradas"/"entrada recepción") vs salidas (hoja "salida")
+      const ingresosSt = [];
+      const salidasSt = [];
+      for (const o of serviceOrdersList) {
+        const isExit = o.status === 'completed' || !!o.exit_date;
+        if (isExit) {
+          salidasSt.push({ order_number: o.order_number, date: o.exit_date, report_url: o.report_url, solution: o.solution });
+        }
+        if (o.entry_date || !isExit) {
+          ingresosSt.push({ order_number: o.order_number, date: o.entry_date || o.received_at, report_url: o.entry_report_url });
+        }
+      }
+
+      const tickets = [...(cwData?.allConversations || [])].map((c) => ({
+        ticketId: c.ticketId ?? c.conversationId,
+        summary: c.aiSummary || null,
+        status: c.status || (c.isOpen ? 'open' : null),
+      }));
+
+      syncFicha({
+        supabase,
+        creds,
+        accountId: creds.chatwootAccountId || '1',
+        contactId: cwContactId,
+        ficha: {
+          name: meta.contactSummary.name,
+          email: meta.contactSummary.email,
+          phone: meta.contactSummary.phone,
+          ruts: factsByLabel('RUT'),
+          comunas: factsByLabel('Comuna'),
+          models: factsByLabel('Modelo'),
+          imeis: imeisAll.filter((v) => String(v).length === 15),
+          deviceIds: imeisAll.filter((v) => String(v).length === 10),
+          sims: factsByLabel('ICCID / SIM'),
+          boletas,
+          pedidos: shOrders.map((o) => ({
+            name: o.name, financialStatus: o.financialStatus, fulfillmentStatus: o.fulfillmentStatus,
+          })),
+          ingresosSt,
+          salidasSt,
+          tickets,
+        },
+      }).catch((err) => console.error('[search] Error en sync de ficha:', err?.message));
+    }
+  }
+  // === FIN FICHA ===
 
   res.json({
     query: rawQ,

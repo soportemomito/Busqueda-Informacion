@@ -5,6 +5,7 @@ import { extractDeviceFactsFromText } from '../lib/extractDeviceFacts.js';
 import { generateLocalHeuristicSummary, callGeminiApi } from '../services/gemini.js';
 import { resolveCredentials } from '../lib/resolveCredentials.js';
 import { writeAttributesToChatwoot } from '../services/chatwoot_writeback.js';
+import { syncFicha } from '../services/ficha.js';
 
 export const webhookRouter = Router();
 
@@ -166,6 +167,9 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         }
 
         // Si sigue vacío, generamos un resumen usando Gemini API (si está configurada) o el heurístico local gratuito
+        // aiData debe vivir fuera del bloque: se consulta más abajo para decidir
+        // si confiar en regex (sin IA) o en los datos estructurados de Gemini.
+        let aiData = null;
         if (!aiSummary) {
           const { data: convMessages } = await supabase
             .from('chatwoot_messages')
@@ -173,12 +177,11 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: true });
 
-          const messagesForSummary = convMessages && convMessages.length > 0 
-            ? convMessages 
+          const messagesForSummary = convMessages && convMessages.length > 0
+            ? convMessages
             : [{ content, message_type: messageType, sender_type: senderType }];
-          
+
           const geminiKey = creds?.geminiApiKey || process.env.GEMINI_API_KEY || '';
-          let aiData = null;
           if (geminiKey) {
             aiData = await callGeminiApi(geminiKey, messagesForSummary);
           }
@@ -423,7 +426,56 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         if (creds) {
           const cwAccountId = payload.account?.id || payload.conversation?.account_id || 1;
           const cwContactId = payload.sender?.id || payload.conversation?.meta?.sender?.id;
-          
+
+          // Ficha consolidada → client_profiles + nota de contacto en Chatwoot.
+          // Las boletas/pedidos completos los aporta la búsqueda del panel; aquí
+          // sincronizamos lo extraído de mensajes + órdenes ST locales por email.
+          if (cwContactId) {
+            (async () => {
+              let ingresosSt = [];
+              let salidasSt = [];
+              if (contactEmail) {
+                const { data: stRows } = await supabase
+                  .from('service_orders')
+                  .select('order_number, status, entry_date, exit_date, received_at, report_url, entry_report_url, solution')
+                  .eq('contact_email', contactEmail.toLowerCase())
+                  .limit(20);
+                for (const o of stRows || []) {
+                  const isExit = o.status === 'completed' || !!o.exit_date;
+                  if (isExit) {
+                    salidasSt.push({ order_number: o.order_number, date: o.exit_date, report_url: o.report_url, solution: o.solution });
+                  }
+                  if (o.entry_date || !isExit) {
+                    ingresosSt.push({ order_number: o.order_number, date: o.entry_date || o.received_at, report_url: o.entry_report_url });
+                  }
+                }
+              }
+
+              const ticketStatus = payload.conversation?.status || null;
+              await syncFicha({
+                supabase,
+                creds,
+                accountId: cwAccountId,
+                contactId: cwContactId,
+                ficha: {
+                  name: contactName,
+                  email: contactEmail,
+                  phone: contactPhone,
+                  ruts: [...currentRuts],
+                  comunas: [...currentComunas],
+                  models: [...currentModels],
+                  imeis: [...currentImeis].filter((v) => v.length === 15),
+                  deviceIds: [...currentImeis].filter((v) => v.length === 10),
+                  sims: [...currentSims],
+                  pedidos: [...currentShopify].map((name) => ({ name })),
+                  ingresosSt,
+                  salidasSt,
+                  tickets: [{ ticketId: conversationId, summary: aiSummary || existing?.ai_summary || null, status: ticketStatus }],
+                },
+              });
+            })().catch((err) => console.error('[ficha] Error en sync desde webhook:', err.message));
+          }
+
           writeAttributesToChatwoot(creds, cwAccountId, cwContactId, conversationId, {
             rut: [...currentRuts][0] || null,
             comuna: [...currentComunas][0] || null,

@@ -562,8 +562,20 @@ function SectionShopify({ block }) {
                 <p className="text-xs text-slate-400 mt-1 font-semibold">
                   {formatIso(o.createdAt)}{o.totalPrice ? ` · $${Number(o.totalPrice).toLocaleString('es-CL')} ${o.currency || ''}` : ''}
                 </p>
+                {o.bsaleFolio && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    <span className="font-semibold text-slate-600">Folio Bsale:</span> {o.bsaleFolio}
+                    {o.bsaleFolioId && <span className="text-slate-400 ml-1.5 font-mono">#{o.bsaleFolioId}</span>}
+                  </p>
+                )}
               </div>
               <div className="flex gap-1.5 shrink-0">
+                {o.bsaleFolioPdf && (
+                  <a href={o.bsaleFolioPdf} target="_blank" rel="noreferrer"
+                    className="rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-2 hover:bg-blue-100 transition-all">
+                    Ver Boleta
+                  </a>
+                )}
                 {o.adminUrl && (
                   <a href={o.adminUrl} target="_blank" rel="noreferrer"
                     className="rounded-xl bg-momo-600 text-white text-xs font-semibold px-3 py-2 hover:bg-momo-700 transition-all shadow-sm">

@@ -332,6 +332,10 @@ function mapOrder(o, storeOrigin) {
   const q = o.name || (o.id != null ? String(o.id) : '');
   const adminOrdersSearchUrl =
     origin && q ? `${origin}/admin/orders?query=${encodeURIComponent(q)}` : null;
+
+  const attrs = Array.isArray(o.note_attributes) ? o.note_attributes : [];
+  const attr = (key) => attrs.find((a) => a.name === key)?.value || null;
+
   return {
     id: o.id,
     name: o.name,
@@ -343,6 +347,9 @@ function mapOrder(o, storeOrigin) {
     customerId: o.customer?.id ?? o.customer_id ?? null,
     adminUrl,
     adminOrdersSearchUrl,
+    bsaleFolio: attr('BSALE-FOLIO'),
+    bsaleFolioId: attr('BSALE-FOLIO-ID'),
+    bsaleFolioPdf: attr('BSALE-FOLIO-PDF'),
     raw: o,
   };
 }
