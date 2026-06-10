@@ -96,10 +96,13 @@ La ficha completa se guarda en `client_profiles` (columnas `bsale_folios`, `tick
 La ficha consolidada se sincroniza automáticamente como **nota en el contacto de Chatwoot**
 (`server/src/services/ficha.js`), de modo que el equipo la ve directamente en Chatwoot
 **sin depender del panel web**:
-- Se dispara automáticamente en cada búsqueda del panel (`/api/search`) y en cada mensaje vía webhook
-- Deduplicada por el marcador `📋 Ficha ST Consolidada`: si ya existe se actualiza (PUT), nunca se duplica
+- Se dispara automáticamente en cada búsqueda del panel (`/api/search`) y en cada mensaje entrante vía webhook
+- Deduplicada por el marcador `📋 **Ficha ST**` (regex tolera el formato antiguo `📋 Ficha ST Consolidada`): si ya existe se actualiza (PUT), nunca se duplica
 - Si el contenido no cambió, no se llama a la API (`unchanged`)
+- Formato compacto: sin título grande, sin footer de sync, sin RUT. Pedidos y tickets llevan enlace directo
 - Endpoint manual: `POST /api/chatwoot/contacts/:contactId/ficha` re-sincroniza desde `client_profiles`
+
+Ver **§14 — La web no murió** y **§15 — Cómo se actualizan las notas (y por qué a veces no salen)**.
 
 ---
 
@@ -305,7 +308,71 @@ GEMINI_API_KEY            — (Opcional) Gemini 2.5 Flash para resúmenes IA
 DRIVE_PARENT_FOLDER_ID    — Carpeta raíz de Drive con informes ST
 DRIVE_SERVICE_ACCOUNT_KEY — JSON de cuenta de servicio Google Drive
 GOOGLE_SHEETS_ID          — ID de la planilla de Google Sheets con órdenes ST
+SHEETS_SYNC_INTERVAL_MIN  — (Opcional) Minutos entre auto-sync de la planilla ST. Default 30. 0 = desactivado
 ```
+
+---
+
+## 14. ¿La web murió? — NO, pero ya no es obligatoria
+
+**La web/panel sigue 100% viva y funcionando.** Lo que cambió es que **ya no dependes de ella** para ver la información del cliente, porque ahora todo se escribe como **nota de contacto en Chatwoot**.
+
+Hay que pensar en dos canales que hacen lo mismo (sincronizar la ficha) pero se disparan distinto:
+
+| | **Panel web** (`/api/search`) | **Webhook** (`/api/webhook/chatwoot`) |
+|---|---|---|
+| **Cuándo corre** | Cuando alguien abre el ticket en el panel embebido | Automático, en cada mensaje entrante del cliente |
+| **Datos que trae** | Los más completos: Shopify + Bsale **en vivo**, cruce histórico, similar-tickets | Lo extraído del mensaje + ST por email/nombre + Shopify/Bsale en vivo solo si el perfil está vacío o >6 h viejo |
+| **Requiere acción humana** | Sí (abrir el panel) | No |
+
+**Conclusión práctica:**
+- Para el día a día, **no necesitas abrir la web** — las notas se generan solas con cada mensaje.
+- La web sigue siendo el **"refuerzo premium"**: si abres el ticket en el panel, fuerzas la ficha más completa y al instante (útil cuando el cliente recién escribe y aún no hay datos cruzados).
+- La web NO se va a borrar. Es complementaria, no legacy.
+
+---
+
+## 15. Cómo se actualizan las notas (y por qué a veces no salen)
+
+### El flujo de una nota
+
+1. Llega un evento a `/api/webhook/chatwoot` (o se abre el panel → `/api/search`).
+2. Se arma la ficha en markdown (`buildFichaMarkdown`).
+3. Se buscan las notas existentes del contacto. Si ya hay una con el marcador `📋 **Ficha ST**`:
+   - **¿Cambió el contenido?** → la actualiza (`updated`).
+   - **¿Es idéntica?** → no hace nada (`unchanged`). *Esto es correcto: la nota ya está ahí.*
+4. Si no existe ninguna → la crea (`created`).
+
+El resultado (`created` / `updated` / `unchanged` / `skipped`) se ve en los logs del servidor:
+`[ficha] Nota de contacto #<id>: <resultado>`
+
+### Por qué a veces NO aparece la nota
+
+En orden de probabilidad:
+
+1. **El webhook de Chatwoot apunta a la ruta equivocada.** La lógica de la ficha vive **solo** en `/api/webhook/chatwoot`. Existe otro webhook, `/webhook` (el del panel, en `webhook_panel.js`), que **NO** genera la nota. → En Chatwoot, el webhook debe ser **`https://<tu-servidor>/api/webhook/chatwoot`**. Si está configurado el otro, las notas no se generan por mensaje (solo al abrir el panel).
+
+2. **El contacto no tiene `id` en el payload.** La nota se escribe contra el contacto (`payload.sender.id` o `conversation.meta.sender.id`). Sin contact_id no hay dónde escribirla.
+
+3. **El evento no es `message_created`.** Otros eventos (conversación actualizada, etc.) no disparan la nota.
+
+4. **El mensaje es saliente del agente.** La sincronización se ata a la extracción de datos del cliente; los mensajes que escribe el agente (type 1) no la disparan. Las notas internas privadas (type 2) sí.
+
+5. **Salió `unchanged` y no te diste cuenta.** Si el contenido es igual al de la última nota, no se reescribe. La nota **ya está** en el contacto — revisa la pestaña de notas del contacto, no de la conversación.
+
+6. **El proceso es best-effort en segundo plano.** El webhook responde `200` de inmediato y procesa la ficha en background. Si Gemini/Shopify/Bsale tardan o fallan en esa pasada, esa nota puntual puede no escribirse, pero **el siguiente mensaje lo reintenta**. No se reintenta automáticamente la misma pasada.
+
+7. **Credenciales de Chatwoot sin resolver.** Si `CHATWOOT_BASE_URL`/`CHATWOOT_API_TOKEN` no están disponibles, la sincronización se salta (`skipped`).
+
+### Cómo forzar la nota manualmente
+
+Si una nota no salió y la necesitas ya:
+- **Abre el ticket en el panel** → dispara `/api/search` y regenera la ficha completa, o
+- **Llama al endpoint**: `POST /api/chatwoot/contacts/:contactId/ficha` (re-sincroniza desde lo guardado en `client_profiles`).
+
+### Nota importante: notas de **contacto**, no de **conversación**
+
+La ficha se escribe en las **notas del CONTACTO** (perfil del cliente), no como nota privada dentro de la conversación. Si la buscas dentro del hilo del ticket no la verás — está en el panel lateral del contacto.
 
 ---
 

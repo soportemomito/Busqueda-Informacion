@@ -6,12 +6,23 @@ import { generateLocalHeuristicSummary, callGeminiApi } from '../services/gemini
 import { resolveCredentials } from '../lib/resolveCredentials.js';
 import { writeAttributesToChatwoot } from '../services/chatwoot_writeback.js';
 import { syncFicha } from '../services/ficha.js';
+import { buildSearchPlan } from '../lib/searchPlan.js';
+import { searchShopify } from '../services/shopify.js';
+import { searchBsale } from '../services/bsale.js';
 
 export const webhookRouter = Router();
 
 const ST_CONTEXT_RE = /ST|servicio\s*t[eé]cnico/i;
 const ORDER_TOKEN_RE = /[PES]-?\d+/gi;
 const SHOPIFY_ORDER_IN_MSG_RE = /\b[A-Za-z]{1,4}#\d{3,8}\b/g;
+
+/** Normaliza valores que llegan como strings basura ("null", "undefined", ""). */
+function cleanStr(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || /^(null|undefined|n\/a|-)$/i.test(s)) return null;
+  return s;
+}
 
 function extractStOrdersFromText(text) {
   if (!text || typeof text !== 'string') return [];
@@ -156,9 +167,9 @@ webhookRouter.post('/chatwoot', async (req, res) => {
         const conversation = payload.conversation || {};
         const contact = payload.sender?.type === 'Contact' ? payload.sender : (conversation.meta?.sender || {});
         
-        const contactName = contact.name || null;
-        let contactEmail = contact.email || null;
-        let contactPhone = contact.phone_number || null;
+        const contactName = cleanStr(contact.name);
+        let contactEmail = cleanStr(contact.email);
+        let contactPhone = cleanStr(contact.phone_number);
         
         let aiSummary = extractAiSummary(conversation.custom_attributes);
         const isPrivate = payload.private === true || messageType === '2';
@@ -318,12 +329,14 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           if (aiData.failure_categories && Array.isArray(aiData.failure_categories)) {
             for (const fc of aiData.failure_categories) currentFallas.add(fc);
           }
-          if (aiData.phone) {
-             const cleanPh = aiData.phone.replace(/[^\d+]/g, '');
+          const aiPhone = cleanStr(aiData.phone);
+          if (aiPhone) {
+             const cleanPh = aiPhone.replace(/[^\d+]/g, '');
              if (cleanPh.length >= 8) contactPhone = cleanPh; // Sobreescribimos con el de IA
           }
-          if (aiData.alt_email) {
-             contactEmail = aiData.alt_email.toLowerCase(); // Sobreescribimos con el de IA
+          const aiEmail = cleanStr(aiData.alt_email);
+          if (aiEmail && aiEmail.includes('@')) {
+             contactEmail = aiEmail.toLowerCase(); // Sobreescribimos con el de IA
           }
           customerSentiment = aiData.customer_sentiment || null;
           issueComplexity = aiData.issue_complexity || null;
@@ -428,17 +441,40 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           const cwContactId = payload.sender?.id || payload.conversation?.meta?.sender?.id;
 
           // Ficha consolidada → client_profiles + nota de contacto en Chatwoot.
-          // Las boletas/pedidos completos los aporta la búsqueda del panel; aquí
-          // sincronizamos lo extraído de mensajes + órdenes ST locales por email.
+          // Independiente del panel web: consulta ST local por email/nombre y,
+          // si los datos de Shopify/Bsale del perfil están vacíos o viejos
+          // (>6 h), los trae en vivo por email.
           if (cwContactId) {
             (async () => {
-              let ingresosSt = [];
-              let salidasSt = [];
-              if (contactEmail) {
+              const { data: profile } = await supabase
+                .from('client_profiles')
+                .select('shopify_orders, bsale_folios, tickets, ficha_synced_at')
+                .eq('chatwoot_contact_id', cwContactId)
+                .maybeSingle();
+
+              // Órdenes ST por email exacto + fallback por nombre (≥2 tokens)
+              const stConditions = [];
+              if (contactEmail) stConditions.push(`contact_email.eq.${contactEmail.toLowerCase()}`);
+              if (contactName) {
+                const tokens = String(contactName)
+                  .toLowerCase()
+                  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                  .split(/[^a-z0-9]+/)
+                  .filter((t) => t.length >= 3)
+                  .slice(0, 3);
+                if (tokens.length >= 2) {
+                  stConditions.push(`and(${tokens.map((t) => `contact_name.ilike.*${t}*`).join(',')})`);
+                  stConditions.push(`contact_email.ilike.${tokens.join('*')}*`);
+                }
+              }
+
+              const ingresosSt = [];
+              const salidasSt = [];
+              if (stConditions.length) {
                 const { data: stRows } = await supabase
                   .from('service_orders')
                   .select('order_number, status, entry_date, exit_date, received_at, report_url, entry_report_url, solution')
-                  .eq('contact_email', contactEmail.toLowerCase())
+                  .or(stConditions.join(','))
                   .limit(20);
                 for (const o of stRows || []) {
                   const isExit = o.status === 'completed' || !!o.exit_date;
@@ -451,7 +487,53 @@ webhookRouter.post('/chatwoot', async (req, res) => {
                 }
               }
 
+              // Shopify/Bsale: partir de lo persistido y refrescar en vivo si falta o está viejo
+              let boletas = (profile?.bsale_folios || []).map((b) => ({ number: b.number, url: b.url, total: b.total }));
+              let pedidos = [...new Set([...(profile?.shopify_orders || []), ...currentShopify])].map((name) => ({ name }));
+
+              const STALE_MS = 6 * 60 * 60 * 1000;
+              const lastSync = profile?.ficha_synced_at ? Date.parse(profile.ficha_synced_at) : 0;
+              const needsLive = contactEmail && ((!boletas.length && !pedidos.length) || Date.now() - lastSync > STALE_MS);
+
+              if (needsLive) {
+                const emailPlan = buildSearchPlan(contactEmail);
+                const [shR, bsR] = await Promise.allSettled([
+                  searchShopify(emailPlan, creds),
+                  searchBsale(emailPlan, creds),
+                ]);
+                if (shR.status === 'fulfilled' && !shR.value.skipped && shR.value.orders?.length) {
+                  pedidos = shR.value.orders.map((o) => ({
+                    name: o.name, url: o.adminUrl || o.adminOrdersSearchUrl || null,
+                    financialStatus: o.financialStatus, fulfillmentStatus: o.fulfillmentStatus,
+                  }));
+                }
+                if (bsR.status === 'fulfilled' && bsR.value.items?.length) {
+                  boletas = bsR.value.items.map((b) => ({
+                    number: b.number, url: b.urlPublicView || null, total: b.total ?? null, date: b.emissionDate,
+                  }));
+                }
+                // Folios anotados en pedidos Shopify que Bsale no devolvió
+                const known = new Set(boletas.map((b) => String(b.number)));
+                if (shR.status === 'fulfilled' && !shR.value.skipped) {
+                  for (const o of shR.value.orders || []) {
+                    if (o.bsaleFolio && !known.has(String(o.bsaleFolio))) {
+                      known.add(String(o.bsaleFolio));
+                      boletas.push({ number: o.bsaleFolio, url: o.bsaleFolioPdf || null, total: null, date: o.createdAt });
+                    }
+                  }
+                }
+              }
+
+              // Tickets: el actual + los previos almacenados en el perfil
               const ticketStatus = payload.conversation?.status || null;
+              const cwBase = String(creds.chatwootBaseUrl || '').replace(/\/+$/, '');
+              const ticketUrl = cwBase
+                ? `${cwBase}/app/accounts/${cwAccountId}/conversations/${conversationId}`
+                : null;
+              const prevTickets = (profile?.tickets || [])
+                .filter((t) => String(t.ticket_id) !== String(conversationId))
+                .map((t) => ({ ticketId: t.ticket_id, summary: t.summary, status: t.status, url: t.url || null }));
+
               await syncFicha({
                 supabase,
                 creds,
@@ -461,16 +543,19 @@ webhookRouter.post('/chatwoot', async (req, res) => {
                   name: contactName,
                   email: contactEmail,
                   phone: contactPhone,
-                  ruts: [...currentRuts],
                   comunas: [...currentComunas],
                   models: [...currentModels],
                   imeis: [...currentImeis].filter((v) => v.length === 15),
                   deviceIds: [...currentImeis].filter((v) => v.length === 10),
                   sims: [...currentSims],
-                  pedidos: [...currentShopify].map((name) => ({ name })),
+                  boletas,
+                  pedidos,
                   ingresosSt,
                   salidasSt,
-                  tickets: [{ ticketId: conversationId, summary: aiSummary || existing?.ai_summary || null, status: ticketStatus }],
+                  tickets: [
+                    { ticketId: conversationId, summary: aiSummary || existing?.ai_summary || null, status: ticketStatus, url: ticketUrl },
+                    ...prevTickets,
+                  ],
                 },
               });
             })().catch((err) => console.error('[ficha] Error en sync desde webhook:', err.message));

@@ -12,7 +12,11 @@ import axios from 'axios';
  * contenido no cambió, no se llama a la API.
  */
 
-export const FICHA_MARKER = '📋 Ficha ST Consolidada';
+export const FICHA_MARKER = '📋 **Ficha ST**';
+
+// Detecta notas de ficha existentes: formato actual (📋 **Ficha ST**)
+// y formato legacy (### 📋 Ficha ST Consolidada)
+const FICHA_NOTE_RE = /📋\s*(?:\*\*)?\s*Ficha ST/;
 
 // ─── Clasificación de dispositivo (espejo de getDeviceCategory del frontend) ──
 
@@ -32,7 +36,9 @@ function fmtDate(v) {
   if (!v) return null;
   const d = new Date(typeof v === 'number' ? (v < 1e12 ? v * 1000 : v) : v);
   if (!Number.isFinite(d.getTime())) return null;
-  return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+  // UTC: las fechas de planilla vienen como medianoche UTC; renderizar en local
+  // las corre un día hacia atrás en Chile.
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
 function line(parts) {
@@ -44,27 +50,24 @@ function line(parts) {
  * @param {string|null} f.name
  * @param {string|null} f.email
  * @param {string|null} f.phone
- * @param {string[]} [f.ruts]
  * @param {string[]} [f.comunas]
  * @param {string[]} [f.models]
  * @param {string[]} [f.imeis]   IMEIs de 15 dígitos
  * @param {string[]} [f.deviceIds] IDs de 10 dígitos
  * @param {string[]} [f.sims]
  * @param {{number:string|number,url?:string|null,total?:number|null,date?:any}[]} [f.boletas]
- * @param {{name:string,financialStatus?:string|null,fulfillmentStatus?:string|null,date?:any}[]} [f.pedidos]
+ * @param {{name:string,url?:string|null,financialStatus?:string|null,fulfillmentStatus?:string|null,date?:any}[]} [f.pedidos]
  * @param {{order_number:string,date?:any,report_url?:string|null}[]} [f.ingresosSt]
  * @param {{order_number:string,date?:any,report_url?:string|null,solution?:string|null}[]} [f.salidasSt]
- * @param {{ticketId:number|string,summary?:string|null,status?:string|null}[]} [f.tickets]
+ * @param {{ticketId:number|string,summary?:string|null,status?:string|null,url?:string|null}[]} [f.tickets]
  * @returns {string} markdown
  */
 export function buildFichaMarkdown(f) {
   const L = [];
-  L.push(`### ${FICHA_MARKER}`);
-  L.push('');
+  L.push(FICHA_MARKER);
   L.push(`👤 **Nombre:** ${f.name || '—'}`);
   L.push(`✉️ **Correo:** ${f.email || '—'}`);
   L.push(`📱 **Teléfono:** ${f.phone || '—'}`);
-  if (f.ruts?.length) L.push(`🪪 **RUT:** ${f.ruts.join(', ')}`);
   if (f.comunas?.length) L.push(`📍 **Comuna:** ${f.comunas.join(', ')}`);
 
   if (f.models?.length) {
@@ -98,7 +101,8 @@ export function buildFichaMarkdown(f) {
     const fulfillMap = { fulfilled: 'Enviado', partial: 'Envío parcial', unfulfilled: 'Sin enviar', restocked: 'Devuelto' };
     const rendered = f.pedidos.map((o) => {
       const states = [payMap[o.financialStatus], fulfillMap[o.fulfillmentStatus]].filter(Boolean).join('/');
-      return line([o.name, states ? `(${states})` : null]);
+      const label = o.url ? `[${o.name}](${o.url})` : o.name;
+      return line([label, states ? `(${states})` : null]);
     });
     L.push(`📦 **Pedidos:** ${rendered.join(' | ')}`);
   } else {
@@ -119,11 +123,16 @@ export function buildFichaMarkdown(f) {
   }
 
   if (f.salidasSt?.length) {
+    const shortSolution = (s) => {
+      const clean = String(s || '').replace(/\s+/g, ' ').trim();
+      if (!clean) return null;
+      return clean.length > 140 ? `— ${clean.slice(0, 140)}…` : `— ${clean}`;
+    };
     const rendered = f.salidasSt.map((o) =>
       line([
         `${o.order_number}`,
         fmtDate(o.date) ? `(${fmtDate(o.date)})` : null,
-        o.solution ? `— ${o.solution}` : null,
+        shortSolution(o.solution),
         o.report_url ? `[Informe](${o.report_url})` : null,
       ]),
     );
@@ -140,7 +149,8 @@ export function buildFichaMarkdown(f) {
       const s = String(t.status || '').toLowerCase();
       const status = t.status ? (s === 'open' || s === 'pending' ? 'OPEN' : 'CLOSED') : null;
       const summary = t.summary ? `"${String(t.summary).slice(0, 180)}"` : '';
-      L.push(line([`- Ticket #${t.ticketId}`, summary, status ? `**(${status})**` : null]));
+      const label = t.url ? `[#${t.ticketId}](${t.url})` : `#${t.ticketId}`;
+      L.push(line([`- Ticket ${label}`, summary, status ? `**(${status})**` : null]));
     }
   }
 
@@ -160,7 +170,7 @@ function chatwootClient(creds) {
   });
 }
 
-/** Quita la línea de timestamp para comparar contenido real. */
+/** Quita la línea de timestamp legacy para comparar contenido real. */
 function stripSyncLine(content) {
   return String(content || '')
     .split('\n')
@@ -178,11 +188,11 @@ export async function upsertContactFichaNote(creds, accountId, contactId, markdo
   if (!http || !contactId) return 'skipped';
 
   const notesPath = `/api/v1/accounts/${accountId}/contacts/${contactId}/notes`;
-  const content = `${markdown}\n\n_Sync automático SoyMomo ST System — ${new Date().toLocaleDateString('es-CL')}_`;
+  const content = markdown;
 
   const { data } = await http.get(notesPath);
   const notes = Array.isArray(data) ? data : data?.payload || [];
-  const existing = notes.find((n) => String(n.content || '').includes(FICHA_MARKER));
+  const existing = notes.find((n) => FICHA_NOTE_RE.test(String(n.content || '')));
 
   if (existing) {
     if (stripSyncLine(existing.content) === stripSyncLine(content)) return 'unchanged';
@@ -217,7 +227,6 @@ export async function persistFichaProfile(supabase, contactId, f, markdown) {
   if (f.name) row.name = f.name;
   if (f.email) row.email = f.email;
   if (f.phone) row.phone = f.phone;
-  if (f.ruts?.length) row.rut = f.ruts[0];
   if (f.comunas?.length) row.comuna = f.comunas[0];
   if (devices.length) row.devices = devices;
   if (f.pedidos?.length) row.shopify_orders = f.pedidos.map((o) => o.name).filter(Boolean);
@@ -230,7 +239,7 @@ export async function persistFichaProfile(supabase, contactId, f, markdown) {
   if (stAll.length) row.service_orders = [...new Set(stAll.map((o) => o.order_number).filter(Boolean))];
   if (f.tickets?.length) {
     row.tickets = f.tickets.map((t) => ({
-      ticket_id: t.ticketId, summary: t.summary || null, status: t.status || null,
+      ticket_id: t.ticketId, summary: t.summary || null, status: t.status || null, url: t.url || null,
     }));
   }
 

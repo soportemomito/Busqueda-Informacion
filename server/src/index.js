@@ -17,6 +17,8 @@ import { panelWebhookRouter } from './routes/webhook_panel.js';
 import { panelSearchRouter } from './routes/search_panel.js';
 import { mergeRouter } from './routes/merge.js';
 import { syncRouter } from './routes/sync.js';
+import { getDb } from './db/supabase.js';
+import { syncServiceOrdersFromSheet } from './services/sheets_sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '../../client/dist');
@@ -76,3 +78,31 @@ app.get('*', (req, res, next) => {
 app.listen(PORT, () => {
   console.log(`SoyMomo ST System API http://localhost:${PORT}`);
 });
+
+// ─── Auto-sync de órdenes ST desde Google Sheets ──────────────────────────────
+// Sin esto las hojas "Entradas", "Entrada recepción" y "Salida" quedan
+// desactualizadas y la ficha no encuentra los informes (caso ticket 14890 / OS 5283).
+// Intervalo configurable con SHEETS_SYNC_INTERVAL_MIN (0 = desactivado).
+const SYNC_INTERVAL_MIN = process.env.SHEETS_SYNC_INTERVAL_MIN != null
+  ? Number(process.env.SHEETS_SYNC_INTERVAL_MIN)
+  : 30;
+
+if (SYNC_INTERVAL_MIN > 0) {
+  let syncing = false;
+  const runSheetSync = async (reason) => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      const result = await syncServiceOrdersFromSheet(getDb());
+      console.log(`[sheets_sync] (${reason}) ${result.synced} órdenes sincronizadas`);
+    } catch (err) {
+      console.error(`[sheets_sync] (${reason}) error:`, err.message);
+    } finally {
+      syncing = false;
+    }
+  };
+
+  setTimeout(() => runSheetSync('arranque'), 10_000);
+  setInterval(() => runSheetSync('programado'), SYNC_INTERVAL_MIN * 60_000);
+  console.log(`[sheets_sync] Auto-sync activado cada ${SYNC_INTERVAL_MIN} min`);
+}

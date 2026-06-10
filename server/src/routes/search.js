@@ -546,10 +546,30 @@ searchRouter.get('/', async (req, res) => {
       ...equipmentFacts.map(f => f.value),
       ...(plan.type === 'imei' ? [plan.imei, plan.deviceId] : [])
     ].filter(Boolean))];
-    
+
     imeiSims.forEach(id => {
       orConditions.push(`imei_sim.eq.${id}`);
     });
+
+    // 4. Fallback por nombre del contacto: cubre casos donde la planilla tiene
+    // otro email/persona pero el nombre coincide (ej: empresa "Electrolisis Chile"
+    // con email electrolisis.chile@gmail.com y receptor "Miguel Ampuero").
+    // Requiere ≥2 tokens de ≥3 letras para evitar falsos positivos.
+    const contactName = cwData?.contacts?.[0]?.name || (plan.type === 'name' ? plan.name : null);
+    if (contactName) {
+      const tokens = String(contactName)
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 3)
+        .slice(0, 3);
+      if (tokens.length >= 2) {
+        // Nombre en la planilla: todos los tokens presentes
+        orConditions.push(`and(${tokens.map((t) => `contact_name.ilike.*${t}*`).join(',')})`);
+        // Email de la planilla: tokens consecutivos en el local-part (electrolisis.chile@…)
+        orConditions.push(`contact_email.ilike.${tokens.join('*')}*`);
+      }
+    }
 
     if (orConditions.length > 0) {
       try {
@@ -680,22 +700,28 @@ searchRouter.get('/', async (req, res) => {
         }
       }
 
+      const cwAccount = String(creds.chatwootAccountId || '1');
+      const ticketUrl = (convId) =>
+        chatwootBase && convId != null
+          ? `${chatwootBase}/app/accounts/${cwAccount}/conversations/${convId}`
+          : null;
+
       const tickets = [...(cwData?.allConversations || [])].map((c) => ({
         ticketId: c.ticketId ?? c.conversationId,
         summary: c.aiSummary || null,
         status: c.status || (c.isOpen ? 'open' : null),
+        url: ticketUrl(c.conversationId),
       }));
 
       syncFicha({
         supabase,
         creds,
-        accountId: creds.chatwootAccountId || '1',
+        accountId: cwAccount,
         contactId: cwContactId,
         ficha: {
           name: meta.contactSummary.name,
           email: meta.contactSummary.email,
           phone: meta.contactSummary.phone,
-          ruts: factsByLabel('RUT'),
           comunas: factsByLabel('Comuna'),
           models: factsByLabel('Modelo'),
           imeis: imeisAll.filter((v) => String(v).length === 15),
@@ -703,7 +729,8 @@ searchRouter.get('/', async (req, res) => {
           sims: factsByLabel('ICCID / SIM'),
           boletas,
           pedidos: shOrders.map((o) => ({
-            name: o.name, financialStatus: o.financialStatus, fulfillmentStatus: o.fulfillmentStatus,
+            name: o.name, url: o.adminUrl || o.adminOrdersSearchUrl || null,
+            financialStatus: o.financialStatus, fulfillmentStatus: o.fulfillmentStatus,
           })),
           ingresosSt,
           salidasSt,
