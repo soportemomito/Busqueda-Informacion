@@ -50,8 +50,6 @@ function line(parts) {
  * @param {string|null} f.name
  * @param {string|null} f.email
  * @param {string|null} f.phone
- * @param {string[]} [f.comunas]
- * @param {string[]} [f.models]
  * @param {string[]} [f.imeis]   IMEIs de 15 dígitos
  * @param {string[]} [f.deviceIds] IDs de 10 dígitos
  * @param {string[]} [f.sims]
@@ -59,7 +57,7 @@ function line(parts) {
  * @param {{name:string,url?:string|null,financialStatus?:string|null,fulfillmentStatus?:string|null,date?:any}[]} [f.pedidos]
  * @param {{order_number:string,date?:any,report_url?:string|null}[]} [f.ingresosSt]
  * @param {{order_number:string,date?:any,report_url?:string|null,solution?:string|null}[]} [f.salidasSt]
- * @param {{ticketId:number|string,summary?:string|null,status?:string|null,url?:string|null}[]} [f.tickets]
+ * @param {{ticketId:number|string,status?:string|null,url?:string|null}[]} [f.tickets]
  * @returns {string} markdown
  */
 export function buildFichaMarkdown(f) {
@@ -68,15 +66,6 @@ export function buildFichaMarkdown(f) {
   L.push(`👤 **Nombre:** ${f.name || '—'}`);
   L.push(`✉️ **Correo:** ${f.email || '—'}`);
   L.push(`📱 **Teléfono:** ${f.phone || '—'}`);
-  if (f.comunas?.length) L.push(`📍 **Comuna:** ${f.comunas.join(', ')}`);
-
-  if (f.models?.length) {
-    const rendered = f.models.map((m) => {
-      const cat = getDeviceCategory(m);
-      return cat ? `${m} _(${cat})_` : m;
-    });
-    L.push(`⌚ **Dispositivo:** ${rendered.join(', ')}`);
-  }
 
   const ids = [...(f.imeis || []), ...(f.deviceIds || [])];
   L.push(`📡 **IMEI/ID:** ${ids.length ? ids.join(', ') : '—'}`);
@@ -148,9 +137,8 @@ export function buildFichaMarkdown(f) {
       // pending cuenta como abierto, igual que isOpen en services/chatwoot.js
       const s = String(t.status || '').toLowerCase();
       const status = t.status ? (s === 'open' || s === 'pending' ? 'OPEN' : 'CLOSED') : null;
-      const summary = t.summary ? `"${String(t.summary).slice(0, 180)}"` : '';
       const label = t.url ? `[#${t.ticketId}](${t.url})` : `#${t.ticketId}`;
-      L.push(line([`- Ticket ${label}`, summary, status ? `**(${status})**` : null]));
+      L.push(line([`- Ticket ${label}`, status ? `**(${status})**` : null]));
     }
   }
 
@@ -210,12 +198,11 @@ export async function persistFichaProfile(supabase, contactId, f, markdown) {
   if (!supabase || !contactId) return;
 
   const devices = [];
-  const imeisArr = f.imeis || [];
+  const imeisArr = [...(f.imeis || []), ...(f.deviceIds || [])];
   const simsArr = f.sims || [];
-  const modelsArr = f.models || [];
-  const maxLen = Math.max(imeisArr.length, simsArr.length, modelsArr.length);
+  const maxLen = Math.max(imeisArr.length, simsArr.length);
   for (let i = 0; i < maxLen; i++) {
-    devices.push({ imei: imeisArr[i] || null, sim: simsArr[i] || null, model: modelsArr[i] || null });
+    devices.push({ imei: imeisArr[i] || null, sim: simsArr[i] || null });
   }
 
   const row = {
@@ -227,7 +214,6 @@ export async function persistFichaProfile(supabase, contactId, f, markdown) {
   if (f.name) row.name = f.name;
   if (f.email) row.email = f.email;
   if (f.phone) row.phone = f.phone;
-  if (f.comunas?.length) row.comuna = f.comunas[0];
   if (devices.length) row.devices = devices;
   if (f.pedidos?.length) row.shopify_orders = f.pedidos.map((o) => o.name).filter(Boolean);
   if (f.boletas?.length) {
@@ -239,7 +225,7 @@ export async function persistFichaProfile(supabase, contactId, f, markdown) {
   if (stAll.length) row.service_orders = [...new Set(stAll.map((o) => o.order_number).filter(Boolean))];
   if (f.tickets?.length) {
     row.tickets = f.tickets.map((t) => ({
-      ticket_id: t.ticketId, summary: t.summary || null, status: t.status || null, url: t.url || null,
+      ticket_id: t.ticketId, status: t.status || null, url: t.url || null,
     }));
   }
 

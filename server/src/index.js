@@ -1,27 +1,18 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { searchRouter } from './routes/search.js';
 import { configRouter } from './routes/config.js';
 import { setupRouter } from './routes/setup.js';
 import { chatwootActionsRouter } from './routes/chatwootActions.js';
 import { webhookRouter } from './routes/webhook.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { aiSyncRouter } from './routes/aiSync.js';
-// Panel routes (spec)
 import { healthRouter } from './routes/health.js';
-import { panelRouter } from './routes/panel.js';
 import { panelWebhookRouter } from './routes/webhook_panel.js';
-import { panelSearchRouter } from './routes/search_panel.js';
 import { mergeRouter } from './routes/merge.js';
 import { syncRouter } from './routes/sync.js';
 import { getDb } from './db/supabase.js';
 import { syncServiceOrdersFromSheet } from './services/sheets_sync.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = join(__dirname, '../../client/dist');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -32,48 +23,26 @@ app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
 
+// Servicio solo-backend: sin web. La ficha se entrega como nota de contacto en
+// Chatwoot a través del webhook (/api/webhook/chatwoot).
+app.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'soymomo-st-system', mode: 'backend-only (notas Chatwoot)' });
+});
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'soymomo-st-system' });
 });
 
-// Panel (spec) routes — registered before the React catch-all
 app.use('/health', healthRouter);
-app.use('/panel', panelRouter);
 app.use('/webhook', panelWebhookRouter);
-app.use('/search', panelSearchRouter);
 app.use('/merge', mergeRouter);
 app.use('/sync', syncRouter);
 
 app.use('/api/setup', setupRouter);
-app.use('/api/search', searchRouter);
 app.use('/api/chatwoot', chatwootActionsRouter);
 app.use('/api/config', configRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/conversations', conversationsRouter);
 app.use('/api/force-sync', aiSyncRouter);
-
-// Sirve el cliente React buildado. En desarrollo no existe la carpeta, se ignora.
-// Assets con hash (JS/CSS): cache largo. index.html: sin cache para ver cambios al instante.
-app.use(express.static(PUBLIC_DIR, {
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-    } else {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-  },
-}));
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.sendFile(join(PUBLIC_DIR, 'index.html'), (err) => {
-    if (err) next(); // en dev la carpeta no existe, no es error
-  });
-});
 
 app.listen(PORT, () => {
   console.log(`SoyMomo ST System API http://localhost:${PORT}`);

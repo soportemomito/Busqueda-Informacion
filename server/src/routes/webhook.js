@@ -362,38 +362,8 @@ webhookRouter.post('/chatwoot', async (req, res) => {
           updated_at: new Date().toISOString()
         });
 
-        // Actualizar tabla centralizada de perfil de cliente
-        if (contact.id) {
-          const profileDevices = [];
-          const imeisArr = [...currentImeis];
-          const simsArr = [...currentSims];
-          const modelsArr = [...currentModels];
-          const maxLen = Math.max(imeisArr.length, simsArr.length, modelsArr.length);
-          for (let i = 0; i < maxLen; i++) {
-            profileDevices.push({
-              imei: imeisArr[i] || null,
-              sim: simsArr[i] || null,
-              model: modelsArr[i] || null
-            });
-          }
-          
-          await supabase.from('client_profiles').upsert({
-            chatwoot_contact_id: contact.id,
-            name: contactName,
-            email: contactEmail,
-            phone: contactPhone,
-            rut: [...currentRuts][0] || null,
-            comuna: [...currentComunas][0] || null,
-            address: currentAddress || null,
-            devices: profileDevices.length > 0 ? profileDevices : undefined,
-            service_orders: [...currentSt],
-            shopify_orders: [...currentShopify],
-            latest_ai_summary: aiSummary || existing?.ai_summary || null,
-            customer_sentiment: customerSentiment,
-            last_interaction_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'chatwoot_contact_id' });
-        }
+        // El perfil consolidado (client_profiles) lo escribe syncFicha más abajo
+        // con los campos de la ficha. Aquí ya no duplicamos esa escritura.
 
         // Guardar en la tabla device_facts para búsquedas y cruce inteligente de similitud inmediato
         const allIdentifiers = [];
@@ -532,7 +502,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
                 : null;
               const prevTickets = (profile?.tickets || [])
                 .filter((t) => String(t.ticket_id) !== String(conversationId))
-                .map((t) => ({ ticketId: t.ticket_id, summary: t.summary, status: t.status, url: t.url || null }));
+                .map((t) => ({ ticketId: t.ticket_id, status: t.status, url: t.url || null }));
 
               await syncFicha({
                 supabase,
@@ -543,8 +513,6 @@ webhookRouter.post('/chatwoot', async (req, res) => {
                   name: contactName,
                   email: contactEmail,
                   phone: contactPhone,
-                  comunas: [...currentComunas],
-                  models: [...currentModels],
                   imeis: [...currentImeis].filter((v) => v.length === 15),
                   deviceIds: [...currentImeis].filter((v) => v.length === 10),
                   sims: [...currentSims],
@@ -553,7 +521,7 @@ webhookRouter.post('/chatwoot', async (req, res) => {
                   ingresosSt,
                   salidasSt,
                   tickets: [
-                    { ticketId: conversationId, summary: aiSummary || existing?.ai_summary || null, status: ticketStatus, url: ticketUrl },
+                    { ticketId: conversationId, status: ticketStatus, url: ticketUrl },
                     ...prevTickets,
                   ],
                 },
@@ -652,26 +620,21 @@ webhookRouter.post('/chatwoot', async (req, res) => {
             const profileDevices = [];
             const imeisArr = [...currentImeis];
             const simsArr = [...currentSims];
-            const modelsArr = [...currentModels];
-            const maxLen = Math.max(imeisArr.length, simsArr.length, modelsArr.length);
+            const maxLen = Math.max(imeisArr.length, simsArr.length);
             for (let i = 0; i < maxLen; i++) {
               profileDevices.push({
                 imei: imeisArr[i] || null,
                 sim: simsArr[i] || null,
-                model: modelsArr[i] || null
               });
             }
 
+            // Solo campos de la ficha vigente; rut/comuna/address/resumen se eliminaron
             await supabase.from('client_profiles').upsert({
               chatwoot_contact_id: cwContactId,
               name: contactName,
               email: contactEmail,
               phone: contactPhone,
-              rut: rVal || null,
-              comuna: cVal || null,
-              address: addrVal || null,
               devices: profileDevices.length > 0 ? profileDevices : undefined,
-              latest_ai_summary: aiSummary || null,
               updated_at: new Date().toISOString()
             }, { onConflict: 'chatwoot_contact_id' });
           }

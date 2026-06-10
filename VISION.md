@@ -7,10 +7,13 @@
 
 ## 1. Propósito
 
-Herramienta de soporte técnico embebida como **Dashboard App dentro de Chatwoot**.  
-Cuando el agente abre una conversación en Chatwoot, la app carga automáticamente el perfil consolidado del cliente cruzando datos de **Chatwoot · Shopify · Bsale · Google Sheets (ST) · Google Drive**.
+Servicio de soporte técnico **solo-backend** conectado a Chatwoot por webhook.
+Cuando un cliente escribe, el sistema consolida automáticamente su perfil cruzando datos de
+**Chatwoot · Shopify · Bsale · Google Sheets (ST) · Google Drive** y lo escribe como
+**nota en el contacto de Chatwoot** (la "Ficha ST").
 
-El objetivo es que el agente nunca tenga que abrir otra pestaña para conocer el historial completo del cliente.
+El objetivo es que el agente vea el historial completo del cliente directamente en Chatwoot,
+sin abrir ninguna otra pestaña ni herramienta. **Ya no hay web/panel** (ver §14).
 
 ---
 
@@ -29,13 +32,13 @@ Todos estos canales llegan a Chatwoot. La búsqueda debe funcionar sin importar 
 ## 3. Flujo principal (estado actual — funcionando)
 
 ```
-Agente abre conversación en Chatwoot
+Cliente escribe en Chatwoot (WhatsApp / IG / Messenger / Email)
     ↓
-Dashboard App (nuestra web) recibe el ticketID vía Chatwoot Dashboard SDK
+Webhook /api/webhook/chatwoot recibe el message_created
     ↓
-Busca automáticamente por contacto (nombre / email / teléfono del perfil Chatwoot)
+Extrae identificadores + cruza Shopify / Bsale / Google Sheets (ST)
     ↓
-Muestra ficha consolidada: identidad + historial + Shopify + Bsale + ST
+Escribe/actualiza la "Ficha ST" como NOTA del contacto en Chatwoot
 ```
 
 ---
@@ -70,21 +73,27 @@ Con el correo disponible (de Chatwoot o de Shopify/customer), cruzar contra la p
 - El cruce se hace por correo, nombre o número de orden (lo que esté disponible)
 
 ### Paso 5 — Construcción y presentación de la Ficha
-Con todos los datos recopilados, construir la ficha del cliente con este formato:
+Con todos los datos recopilados, construir la ficha del cliente con este formato
+(compacto, sin resumen de ticket, sin RUT/comuna/modelo):
 
 ```
+📋 Ficha ST
 Nombre:        [nombre del contacto]
 Correo:        [correo]
 Telefono:      [teléfono]
 IMEI/ID:       [IMEI 15 dígitos o ID 10 dígitos extraído de mensajes]
 SIM:           [ICCID/SIM SoyMomo extraído de mensajes]
 Boletas:       [folios Bsale + enlace PDF si existe]
-Pedidos:       [número(s) pedido Shopify + estado pago/envío]
-Ingresos ST:   [órdenes de hojas "entradas" y "entrada recepción"]
-Salidas ST:    [órdenes de hoja "salida"]
-Ticket: #XXXX  "Resumen breve del ticket"  OPEN / CLOSED
-Ticket: #XXXX  "Resumen breve del ticket"  OPEN / CLOSED
+Pedidos:       [número(s) pedido Shopify + estado pago/envío + enlace al pedido]
+Ingresos ST:   [órdenes de hojas "entradas" y "entrada recepción" + enlace al informe]
+Salidas ST:    [órdenes de hoja "salida" + enlace al informe]
+Tickets:
+  - #XXXX  (OPEN/CLOSED)   ← enlace directo a la conversación
+  - #XXXX  (OPEN/CLOSED)
 ```
+
+La ficha se entrega **como nota del CONTACTO en Chatwoot** (`server/src/services/ficha.js`).
+Ya no hay web/panel: ver §14.
 
 ### Paso 6 — Persistencia en Supabase ✅ IMPLEMENTADO
 La ficha completa se guarda en `client_profiles` (columnas `bsale_folios`, `tickets`, `ficha_markdown`, `ficha_synced_at` — migración 013) para:
@@ -141,18 +150,11 @@ De los mensajes del chat (vía webhook `message_created`):
 
 ---
 
-## 6. Tipo de dispositivo
+## 6. Tipo de dispositivo — ❌ ya no se muestra en la ficha
 
-Identificar la categoría del dispositivo mencionado en el chat para contextualizar rápido:
-
-| Categoría | Modelos SoyMomo asociados |
-|-----------|--------------------------|
-| **Reloj / Smartwatch** | SoyMomo Space 1, 2, 3, 4, Lite, Space|
-| **Tablet** | SoyMomo Tablet, Tablet Lite 2, Tablet Lite 3, Tablet Pro, Tablet Pro 2 |
-| **Monitor / Baby Monitor** | Baby Monitor, Baby Monitor Lite, Baby Monitor Pro, Baby Monitor Pro 2 |
-| **Celular** | Momophone Pro, Momophone|
-
-La categoría debe mostrarse como chip visual en la Ficha del Cliente.
+La clasificación (Reloj / Tablet / Monitor / Celular) se quitó de la ficha junto con
+el campo Modelo. La función `getDeviceCategory` sigue en `services/ficha.js` por si se
+reincorpora, pero **no se renderiza**.
 
 ---
 
@@ -167,39 +169,22 @@ Cuando un cliente contacta, buscar en otros tickets de Chatwoot si existe:
 
 **Objetivo:** Detectar cuando la pareja, familiar u otro representante del mismo cliente ya consultó por el mismo equipo, evitando responder dos veces lo mismo o contradecirse.
 
-El cruce ya está implementado en `SectionSimilarTickets`. Continuar mejorándolo.
+Los identificadores se siguen acumulando en `device_facts` para este cruce. Como ya no
+hay web, la **ficha-nota agrupa todos los tickets del contacto** (`🎫 Tickets`), que es
+la forma en que hoy el equipo ve el historial relacionado.
 
 ---
 
-## 8. Resumen del chat (IA)
+## 8. Resumen del chat (IA) — ❌ DESCARTADO
 
-### Estrategia (sin costo si no hay API key)
+**Este apartado ya no se utiliza.** La ficha no muestra resumen del ticket; los tickets
+aparecen solo como `#XXXX (OPEN/CLOSED)` con enlace directo a la conversación.
 
-```
-1. Si hay GEMINI_API_KEY configurada → llamar Gemini 2.5 Flash (gratuito con límites)
-2. Si no → intentar el resumen propio de Chatwoot AI (si está configurado)
-3. Si no → generar resumen heurístico local 100% gratuito (ya implementado en generateLocalHeuristicSummary)
-```
-
-El resumen se genera **automáticamente por webhook** en cada nuevo mensaje y se guarda en Supabase (`conversation_summaries.ai_summary`).
-
-### Datos que extrae la IA / heurístico
-
-- Resumen ejecutivo del problema
-- Sentimiento del cliente (positive / neutral / negative / frustrated)
-- Complejidad del caso (low / medium / high)
-- Dispositivos mencionados (modelo + IMEI + SIM)
-- Órdenes de servicio técnico
-- Órdenes Shopify
-
-### Visión futura con IA
-
-Investigar la posibilidad de usar un modelo IA (Claude API, Gemini API u otro) para:
-- Contextualizar la conversación completa y extraer datos con mayor precisión
-- Sugerir respuestas basadas en el historial del cliente
-- Identificar patrones de fallas por modelo de dispositivo
-
-**Restricción importante:** No se quiere depender de una API key obligatoria. Cualquier IA debe ser opcional con fallback local gratuito.
+> Nota técnica: internamente todavía se extraen identificadores de los mensajes
+> (IMEI, SIM, teléfono, email, números de orden) para alimentar la ficha y el
+> cruce de tickets. Esa extracción puede usar Gemini si hay `GEMINI_API_KEY`, o
+> el fallback regex local si no la hay — pero **el texto de resumen ya no se
+> genera ni se muestra**.
 
 ---
 
@@ -211,49 +196,49 @@ Cuando el cliente ingresó su equipo a servicio técnico, el sistema puede ident
 - **Hoja "Entrada"** — registro de entrada
 - **Hoja "Salida"** — informe de salida/reparación
 
-Para cada orden encontrada, mostrar **solo un botón de acceso directo** al informe correspondiente (entrada y/o salida en caso de no estar el de salida, solo el de entrada). No necesitamos mostrar todos los datos inline — el botón es suficiente.
-
-Esto ya está implementado en `SectionServiceOrders` con botones "Ver Informe Entrada ↗" y "Ver Informe Salida ↗".
-
----
-
-## 10. Gestión de tickets desde la ficha
-
-Acciones disponibles directamente desde nuestra app sin abrir Chatwoot:
-
-| Acción | Estado |
-|--------|--------|
-| Ver tickets abiertos del contacto | ✅ Implementado |
-| Abrir ticket en Chatwoot (link) | ✅ Implementado |
-| Marcar ticket como resuelto | ✅ Implementado (`Marcar Resuelta`) |
-| Agregar/quitar etiqueta ST | ✅ Implementado |
-| Enviar ficha como nota interna (conversación) | ✅ Implementado |
-| Ficha como nota de CONTACTO (auto-sync, sin panel) | ✅ Implementado (`services/ficha.js`) |
-| Re-sincronizar ficha manualmente | ✅ `POST /api/chatwoot/contacts/:id/ficha` |
+Para cada orden encontrada, la ficha muestra el número, la fecha y un **enlace
+directo al informe** (entrada y/o salida) alojado en Google Drive. La planilla se
+sincroniza a Supabase (`service_orders`) automáticamente (ver §16).
 
 ---
 
-## 11. Arquitectura técnica
+## 10. Acciones sobre el ticket (endpoints backend)
+
+Ya no hay UI; estas acciones quedan como endpoints del backend que pueden invocarse
+desde Chatwoot (automatizaciones) o manualmente:
+
+| Acción | Cómo |
+|--------|------|
+| Ficha como nota de CONTACTO (auto, sin web) | Automático vía webhook (`services/ficha.js`) |
+| Re-sincronizar ficha manualmente | `POST /api/chatwoot/contacts/:id/ficha` |
+| Marcar conversación resuelta | `POST /api/chatwoot/conversations/resolve` |
+| Agregar/quitar etiqueta | `POST /api/chatwoot/conversations/:id/labels` |
+| Nota interna en la conversación | `POST /api/chatwoot/conversations/:id/notes` |
+
+---
+
+## 11. Arquitectura técnica (solo backend — sin web)
 
 ```
-client/          → React + Vite + TailwindCSS (Dashboard App Chatwoot)
-server/          → Node.js + Express
-  routes/        → API endpoints
-  services/      → Integraciones externas (Chatwoot, Shopify, Bsale, Drive, Gemini)
-  db/            → Acceso a Supabase
-  lib/           → Utilitarios (extractor, nameMatch, searchPlan, etc.)
+server/          → Node.js + Express (ÚNICO componente; ya no hay client/)
+  routes/        → API endpoints + webhook
+  services/      → Integraciones externas (Chatwoot, Shopify, Bsale, Drive, Sheets) + ficha
+  db/ · lib/     → Acceso a Supabase y utilitarios
 supabase/        → Migraciones y esquema de base de datos
 ```
+
+El **webhook de Chatwoot** (`/api/webhook/chatwoot`) es el corazón: recibe cada mensaje,
+extrae datos, cruza fuentes y escribe la ficha como nota de contacto. No hay frontend.
 
 ### Tablas clave en Supabase (Dash CS)
 
 | Tabla | Contenido |
 |-------|-----------|
 | `chatwoot_messages` | Todos los mensajes crudos recibidos por webhook |
-| `conversation_summaries` | Resumen + entidades extraídas por conversación |
-| `client_profiles` | Perfil consolidado por contacto Chatwoot |
+| `conversation_summaries` | Entidades extraídas por conversación (IMEI/SIM/órdenes) |
+| `client_profiles` | Ficha consolidada por contacto (slim — migración 014) |
 | `device_facts` | Índice de búsqueda rápida por IMEI/SIM/email/etc. |
-| `sheets_service_orders` | Caché de órdenes ST desde Google Sheets |
+| `service_orders` | Órdenes ST sincronizadas desde Google Sheets |
 
 ---
 
@@ -266,15 +251,14 @@ supabase/        → Migraciones y esquema de base de datos
 - [x] **Mejor extracción de número de orden Shopify sin prefijo** — implementado en `services/extractor.js` (5-7 dígitos con contexto: pedido, compra, orden, shopify)
 - [x] **Persistencia automática de la ficha en `client_profiles`** — en cada búsqueda del panel y cada mensaje del webhook (fix crítico: bug de scope de `aiData` en webhook.js impedía TODO el guardado)
 
-### Media prioridad
+### Completado en esta etapa
+- [x] **Auto-sync de la planilla ST** — `index.js` cada 30 min + al arranque (`SHEETS_SYNC_INTERVAL_MIN`)
+- [x] **Matching ST por nombre** — fallback cuando el email no coincide (caso OS 5283 / ticket 14890)
+- [x] **Eliminación de la web** — solo-backend, ficha como nota de contacto
+- [x] **Ficha slim** — sin RUT/comuna/modelo/resumen; pedidos y tickets con enlace
 
-- [ ] **Modo solo ficha (CLI / config)** — opción para mostrar solo la Ficha del Cliente y ocultar las secciones colapsables, ideal para pantallas pequeñas o flujos rápidos
-- [ ] **Investigar integración IA más profunda** — evaluar Claude API para contextualización completa de la conversación, manteniendo el fallback local gratuito
-- [ ] **Mejora del resumen heurístico** — más patrones de fallas y mejor estructura del texto generado
-
-### Baja prioridad / Futuro
-
-- [ ] **Estadísticas por tipo de falla / modelo** — dashboard interno para el equipo ST
+### Pendiente / Futuro
+- [ ] **Estadísticas por tipo de falla** — reporte interno para el equipo ST
 - [ ] **Notificaciones push** — alertar cuando se detecta un IMEI con historial de ST reciente
 
 ---
@@ -287,10 +271,9 @@ Este proyecto puede ser trabajado simultáneamente por **agentes Claude** y **ag
 
 1. **Leer este archivo primero** antes de hacer cualquier cambio
 2. **No romper el webhook** — es el corazón del sistema. Cualquier cambio en `server/src/routes/webhook.js` debe ser cuidadoso
-3. **Mantener los fallbacks** — la IA nunca es obligatoria; el heurístico local siempre debe funcionar sin API keys
-4. **Supabase**: el proyecto tiene acceso a **Dash CS** en Supabase. Las credenciales están en `server/.env`
-5. **No almacenar direcciones completas** — solo la comuna. Esta es una decisión de privacidad deliberada.
-6. **Los cambios de frontend** requieren rebuild: `cd client && npm run build`
+3. **Supabase**: el proyecto tiene acceso a **Dash CS** en Supabase. Las credenciales están en `server/.env`
+4. **Ya no hay frontend** — el proyecto es solo-backend. No existe `client/` ni build de web.
+5. **La ficha es la fuente de verdad visible** — cualquier dato nuevo debe llegar a la nota de contacto (`services/ficha.js`).
 
 ### Variables de entorno clave
 
@@ -304,7 +287,7 @@ SUPABASE_SERVICE_KEY      — Service Role Key de Supabase
 SHOPIFY_STORE_DOMAIN      — Dominio de la tienda Shopify
 SHOPIFY_ACCESS_TOKEN      — Token de acceso Shopify Admin API
 BSALE_ACCESS_TOKEN        — Token API de Bsale
-GEMINI_API_KEY            — (Opcional) Gemini 2.5 Flash para resúmenes IA
+GEMINI_API_KEY            — (Opcional) Gemini 2.5 Flash para extraer identificadores de mensajes (fallback: regex local)
 DRIVE_PARENT_FOLDER_ID    — Carpeta raíz de Drive con informes ST
 DRIVE_SERVICE_ACCOUNT_KEY — JSON de cuenta de servicio Google Drive
 GOOGLE_SHEETS_ID          — ID de la planilla de Google Sheets con órdenes ST
@@ -313,22 +296,22 @@ SHEETS_SYNC_INTERVAL_MIN  — (Opcional) Minutos entre auto-sync de la planilla 
 
 ---
 
-## 14. ¿La web murió? — NO, pero ya no es obligatoria
+## 14. La web fue eliminada (solo-backend)
 
-**La web/panel sigue 100% viva y funcionando.** Lo que cambió es que **ya no dependes de ella** para ver la información del cliente, porque ahora todo se escribe como **nota de contacto en Chatwoot**.
+A partir de 2026-06-10 **el proyecto ya no tiene web**. Se eliminaron:
+- La carpeta `client/` (panel React embebido) y el build estático `server/public/`
+- El endpoint `/api/search` (búsqueda manual) y `/search`, `/panel`
 
-Hay que pensar en dos canales que hacen lo mismo (sincronizar la ficha) pero se disparan distinto:
+El backend (`server/`) **se queda**, porque ahí viven el webhook y la generación de notas.
+El único flujo es ahora:
 
-| | **Panel web** (`/api/search`) | **Webhook** (`/api/webhook/chatwoot`) |
-|---|---|---|
-| **Cuándo corre** | Cuando alguien abre el ticket en el panel embebido | Automático, en cada mensaje entrante del cliente |
-| **Datos que trae** | Los más completos: Shopify + Bsale **en vivo**, cruce histórico, similar-tickets | Lo extraído del mensaje + ST por email/nombre + Shopify/Bsale en vivo solo si el perfil está vacío o >6 h viejo |
-| **Requiere acción humana** | Sí (abrir el panel) | No |
+```
+Cliente escribe en Chatwoot → webhook /api/webhook/chatwoot → ficha como nota de contacto
+```
 
-**Conclusión práctica:**
-- Para el día a día, **no necesitas abrir la web** — las notas se generan solas con cada mensaje.
-- La web sigue siendo el **"refuerzo premium"**: si abres el ticket en el panel, fuerzas la ficha más completa y al instante (útil cuando el cliente recién escribe y aún no hay datos cruzados).
-- La web NO se va a borrar. Es complementaria, no legacy.
+**En Chatwoot debes quitar el Dashboard App "search info"** (Configuración → Integraciones →
+Dashboard Apps): ya no apunta a nada. La información del cliente se ve directamente en la
+**pestaña de notas del contacto**.
 
 ---
 
@@ -336,7 +319,7 @@ Hay que pensar en dos canales que hacen lo mismo (sincronizar la ficha) pero se 
 
 ### El flujo de una nota
 
-1. Llega un evento a `/api/webhook/chatwoot` (o se abre el panel → `/api/search`).
+1. Llega un `message_created` a `/api/webhook/chatwoot`.
 2. Se arma la ficha en markdown (`buildFichaMarkdown`).
 3. Se buscan las notas existentes del contacto. Si ya hay una con el marcador `📋 **Ficha ST**`:
    - **¿Cambió el contenido?** → la actualiza (`updated`).
@@ -350,29 +333,56 @@ El resultado (`created` / `updated` / `unchanged` / `skipped`) se ve en los logs
 
 En orden de probabilidad:
 
-1. **El webhook de Chatwoot apunta a la ruta equivocada.** La lógica de la ficha vive **solo** en `/api/webhook/chatwoot`. Existe otro webhook, `/webhook` (el del panel, en `webhook_panel.js`), que **NO** genera la nota. → En Chatwoot, el webhook debe ser **`https://<tu-servidor>/api/webhook/chatwoot`**. Si está configurado el otro, las notas no se generan por mensaje (solo al abrir el panel).
+1. **El webhook de Chatwoot apunta a la ruta equivocada.** La lógica de la ficha vive **solo** en `/api/webhook/chatwoot`. Existe otro webhook, `/webhook` (`webhook_panel.js`), que **NO** genera la nota. → En Chatwoot, el webhook debe ser **`https://<tu-servidor>/api/webhook/chatwoot`**.
 
 2. **El contacto no tiene `id` en el payload.** La nota se escribe contra el contacto (`payload.sender.id` o `conversation.meta.sender.id`). Sin contact_id no hay dónde escribirla.
 
-3. **El evento no es `message_created`.** Otros eventos (conversación actualizada, etc.) no disparan la nota.
+3. **El evento no es `message_created`.** Otros eventos no disparan la nota.
 
 4. **El mensaje es saliente del agente.** La sincronización se ata a la extracción de datos del cliente; los mensajes que escribe el agente (type 1) no la disparan. Las notas internas privadas (type 2) sí.
 
 5. **Salió `unchanged` y no te diste cuenta.** Si el contenido es igual al de la última nota, no se reescribe. La nota **ya está** en el contacto — revisa la pestaña de notas del contacto, no de la conversación.
 
-6. **El proceso es best-effort en segundo plano.** El webhook responde `200` de inmediato y procesa la ficha en background. Si Gemini/Shopify/Bsale tardan o fallan en esa pasada, esa nota puntual puede no escribirse, pero **el siguiente mensaje lo reintenta**. No se reintenta automáticamente la misma pasada.
+6. **El proceso es best-effort en segundo plano.** El webhook responde `200` de inmediato y procesa la ficha en background. Si Shopify/Bsale tardan o fallan en esa pasada, esa nota puntual puede no escribirse, pero **el siguiente mensaje lo reintenta**.
 
 7. **Credenciales de Chatwoot sin resolver.** Si `CHATWOOT_BASE_URL`/`CHATWOOT_API_TOKEN` no están disponibles, la sincronización se salta (`skipped`).
 
 ### Cómo forzar la nota manualmente
 
-Si una nota no salió y la necesitas ya:
-- **Abre el ticket en el panel** → dispara `/api/search` y regenera la ficha completa, o
-- **Llama al endpoint**: `POST /api/chatwoot/contacts/:contactId/ficha` (re-sincroniza desde lo guardado en `client_profiles`).
+`POST /api/chatwoot/contacts/:contactId/ficha` re-sincroniza desde lo guardado en `client_profiles`.
 
 ### Nota importante: notas de **contacto**, no de **conversación**
 
 La ficha se escribe en las **notas del CONTACTO** (perfil del cliente), no como nota privada dentro de la conversación. Si la buscas dentro del hilo del ticket no la verás — está en el panel lateral del contacto.
+
+---
+
+## 16. Integraciones que debes tener en Chatwoot
+
+Para que todo funcione, en Chatwoot necesitas **exactamente dos cosas** (y quitar una tercera):
+
+### 1. Webhook (OBLIGATORIO) — el motor de las notas
+- **Dónde:** Configuración → Integraciones → **Webhooks** → Agregar
+- **URL:** `https://<tu-servidor>/api/webhook/chatwoot`
+- **Evento:** `Mensaje creado` (`message_created`). Es el único imprescindible.
+  - Opcional: `Conversación actualizada` (`conversation_updated`) si quieres que al editar
+    atributos también se refresque el perfil.
+- **Firma:** si defines `CHATWOOT_WEBHOOK_SECRET` en el server, Chatwoot firma el payload
+  (HMAC-SHA256) y el server lo valida. Si lo dejas vacío, acepta sin firma (modo dev).
+
+### 2. Token de API / Bot (OBLIGATORIO) — para escribir las notas
+- El server necesita un **Access Token** de Chatwoot para crear notas de contacto, etiquetas
+  y resolver conversaciones.
+- **Dónde sacarlo:** Perfil → Configuración del perfil → **Access Token**, o crea un
+  **Agent Bot** y usa su token.
+- **Dónde ponerlo:** `CHATWOOT_API_TOKEN` (+ `CHATWOOT_BASE_URL` y `CHATWOOT_ACCOUNT_ID`) en el server.
+
+### 3. Dashboard App "search info" (ELIMINAR) ❌
+- Era el panel web embebido. **Ya no apunta a nada** → bórralo en
+  Configuración → Integraciones → **Dashboard Apps**.
+
+> Resumen: **Webhook + Access Token = todo lo que Chatwoot necesita.** El equipo ve la ficha
+> en la pestaña de **Notas** del contacto.
 
 ---
 
